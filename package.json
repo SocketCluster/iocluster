@@ -2,7 +2,6 @@
   "name": "iocluster",
   "version": "0.9.0",
   "description": "Realtime clustering engine",
-  "homepage": "http://socket.io",
   "keywords": [
     "iocluster",
     "cluster",
@@ -21,8 +20,8 @@
   "dependencies": {
 	"async": "0.1.22",
     "handlebars": "1.0.12",
-	"ndata": ">= 0.9.21",
-    "socket.io": ">=0.9.14"
+	"linkedlist": "1.0.1",
+	"ndata": ">= 0.9.22"
   },
   "main": "index",
   "engines": {
