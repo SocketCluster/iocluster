@@ -386,9 +386,13 @@ var IOClusterClient = module.exports.IOClusterClient = function (options) {
 	this._dataExpiry = options.dataExpiry;
 	this._connectTimeout = options.connectTimeout;
 	this._addressSocketLimit = options.addressSocketLimit;
+	this._heartRate = options.heartRate || 4;
 	
-	// Expressed in milliseconds
-	this._expiryReset = Math.ceil(this._dataExpiry * 300);
+	// Expressed in milliseconds.
+	// Added 15% safety margin to heartRate in order to shift expiryReset forward 
+	// so that it doesn't clash with expiry.
+	this._expiryReset = Math.floor(this._dataExpiry * 1000 / (this._heartRate * 1.15));
+	
 	this._expiryBatchSize = 1000;
 	this._keyManager = new KeyManager();
 	this._ready = false;

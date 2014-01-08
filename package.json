@@ -1,6 +1,6 @@
 {
   "name": "iocluster",
-  "version": "0.9.6",
+  "version": "0.9.7",
   "description": "Realtime clustering engine",
   "keywords": [
     "iocluster",
@@ -18,13 +18,17 @@
     }
   ],
   "dependencies": {
-	"async": "0.1.22",
+    "async": "0.1.22",
     "handlebars": "1.0.12",
-	"linkedlist": "1.0.1",
-	"ndata": ">= 0.9.25"
+    "linkedlist": "1.0.1",
+    "ndata": ">= 0.9.25"
   },
   "main": "index",
   "engines": {
     "node": ">= 0.8.0"
-  }
+  },
+  "readme": "iocluster\r\n=========\r\n\r\nRealtime clustering engine for SocketCluster\r\n",
+  "readmeFilename": "README.md",
+  "_id": "iocluster@0.9.6",
+  "_from": "iocluster@>= 0.9.6"
 }
