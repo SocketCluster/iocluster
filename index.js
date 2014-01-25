@@ -477,7 +477,7 @@ var IOClusterClient = module.exports.IOClusterClient = function (options) {
 	
 	process.on('exit', function () {
 		for (var i in self._addresses) {
-			self._privClientCluster.remove(self._addresses[i].dataKey);
+			self._privClientCluster.remove(self._addresses[i].dataKey, {noAck: 1});
 		}
 	});
 };
