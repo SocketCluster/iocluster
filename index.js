@@ -474,6 +474,12 @@ var IOClusterClient = module.exports.IOClusterClient = function (options) {
 	this._socketEmitter = new EventEmitter();
 	this._sessionEmitter = new EventEmitter();
 	this._globalEmitter = new EventEmitter();
+	
+	process.on('exit', function () {
+		for (var i in self._addresses) {
+			self._privClientCluster.remove(self._addresses[i].dataKey);
+		}
+	});
 };
 
 IOClusterClient.prototype = Object.create(EventEmitter.prototype);
