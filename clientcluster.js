@@ -1,4 +1,6 @@
 var async = require('async');
+var domain = require('domain');
+var EventEmitter = require('events').EventEmitter;
 
 var ClientCluster = function (clients) {
 	var self = this;
@@ -39,7 +41,13 @@ var ClientCluster = function (clients) {
 		'extractValues'
 	];
 	
+	var errorDomain = domain.createDomain();
+	errorDomain.on('error', function (err) {
+		self.emit('error', err);
+	});
+	
 	for (i in clients) {
+		errorDomain.add(clients[i]);
 		clients[i].id = i;
 		clientIds.push(i);
 	}
@@ -162,5 +170,7 @@ var ClientCluster = function (clients) {
 		return [];
 	};
 };
+
+ClientCluster.prototype = Object.create(EventEmitter.prototype);
 
 module.exports.ClientCluster = ClientCluster;

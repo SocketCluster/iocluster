@@ -3,6 +3,7 @@ var ndata = require('ndata');
 var async = require('async');
 var LinkedList = require('linkedlist');
 var ClientCluster = require('./clientcluster').ClientCluster;
+var domain = require('domain');
 
 var KeyManager = function () {};
 
@@ -65,6 +66,8 @@ var isEmpty = function(obj) {
 var AbstractDataClient = function (dataClient) {
 	this._dataClient = dataClient;
 };
+
+AbstractDataClient.prototype = Object.create(EventEmitter.prototype);
 
 AbstractDataClient.prototype.set = function() {
 	arguments[0] = this._localizeDataKey(arguments[0]);
@@ -383,6 +386,12 @@ IOCluster.prototype.destroy = function () {
 
 var IOClusterClient = module.exports.IOClusterClient = function (options) {
 	var self = this;
+	
+	this._errorDomain = domain.createDomain();
+	this._errorDomain.on('error', function (err) {
+		self.emit('error', err);
+	});
+	
 	this._dataExpiry = options.dataExpiry;
 	this._connectTimeout = options.connectTimeout;
 	this._addressSocketLimit = options.addressSocketLimit;
@@ -444,9 +453,11 @@ var IOClusterClient = module.exports.IOClusterClient = function (options) {
 	
 	this._privClientCluster = new ClientCluster(dataClients);
 	this._privClientCluster.setMapper(this._privMapper);
+	this._errorDomain.add(this._privClientCluster);
 	
 	this._pubClientCluster = new ClientCluster(dataClients);
 	this._pubClientCluster.setMapper(this._pubMapper);
+	this._errorDomain.add(this._pubClientCluster);
 	
 	// The last one will be used to check for global events.
 	dataClient.on('ready', function () {
@@ -586,6 +597,8 @@ IOClusterClient.prototype._handshake = function (socket, callback) {
 IOClusterClient.prototype.bind = function (socket, callback) {
 	var self = this;
 	
+	callback = this._errorDomain.bind(callback);
+	
 	socket.eventKey = this._keyManager.getSocketEventKey(socket.id);
 	socket.dataKey = this._keyManager.getSocketDataKey(socket.id);
 	socket.sessionEventKey = this._keyManager.getSessionEventKey(socket.ssid);
@@ -594,7 +607,7 @@ IOClusterClient.prototype.bind = function (socket, callback) {
 	
 	this._handshake(socket, function (err, notice) {
 		if (err) {
-			callback && callback(err, socket, notice);
+			callback(err, socket, notice);
 		} else {
 			self._sockets[socket.id] = socket;
 			if (self._sessions[socket.ssid] == null) {
@@ -647,7 +660,7 @@ IOClusterClient.prototype.bind = function (socket, callback) {
 				}
 			],
 			function(err) {
-				callback && callback(err, socket);
+				callback(err, socket);
 			});
 		}
 	});
@@ -655,6 +668,8 @@ IOClusterClient.prototype.bind = function (socket, callback) {
 
 IOClusterClient.prototype.unbind = function (socket, callback) {
 	var self = this;
+	
+	callback = this._errorDomain.bind(callback);
 	
 	async.waterfall([
 		function () {
@@ -688,6 +703,8 @@ IOClusterClient.prototype.unbind = function (socket, callback) {
 };
 
 IOClusterClient.prototype.getAddressSockets = function (ipAddress, callback) {
+	var self = this;
+	
 	var addressDataKey = ['__meta', 'addresses', ipAddress, 'sockets'];
 	this._privClientCluster.get(this._keyManager.getGlobalDataKey(addressDataKey), function (err, data) {
 		var sockets = [];
@@ -695,6 +712,7 @@ IOClusterClient.prototype.getAddressSockets = function (ipAddress, callback) {
 		for (i in data) {
 			sockets.push(i);
 		}
+		
 		callback(err, sockets);
 	});
 };
@@ -711,6 +729,7 @@ IOClusterClient.prototype.socket = function (socketId, sessionId) {
 	if (!sessionId) {
 		sessionId = this._sockets[socketId].ssid;
 	}
+	
 	return new Socket(socketId, this._privClientCluster.map(sessionId)[0], this._socketEmitter);
 };
 
