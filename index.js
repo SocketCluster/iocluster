@@ -466,17 +466,26 @@ var IOClusterClient = module.exports.IOClusterClient = function (options) {
 			function(err) {
 				if (err) {
 					self.emit('error', err);
-				} else {
-					self._ready = true;
-					self.emit('ready');
 				}
 			}
 		);
-		
-		self._expiryInterval = setInterval(function () {
-			self._extendExpiries();
-		}, self._expiryReset);
 	});
+	
+	var readyNum = 0;
+	var dataClientReady = function () {
+		if (++readyNum >= dataClients.length) {
+			self._expiryInterval = setInterval(function () {
+				self._extendExpiries();
+			}, self._expiryReset);
+			
+			self._ready = true;
+			self.emit('ready');
+		}
+	};
+	
+	for (var j in dataClients) {
+		dataClients[j].on('ready', dataClientReady);
+	}
 	
 	this._sockets = {};
 	this._sessions = {};
