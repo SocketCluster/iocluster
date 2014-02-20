@@ -349,7 +349,11 @@ var IOCluster = module.exports.IOCluster = function (options) {
 	
 	for (var i=0; i<len; i++) {
 		var launchServer = function (i) {
-			dataServer = ndata.createServer(options.stores[i].port, options.dataKey, options.expiryAccuracy);
+			var curStore = options.stores[i];
+			if (typeof curStore == 'number') {
+				curStore = {port: curStore};
+			}
+			dataServer = ndata.createServer(curStore.port, options.dataKey, options.expiryAccuracy);
 			self._dataServers[i] = dataServer;
 			
 			if (firstTime) {
@@ -366,7 +370,7 @@ var IOCluster = module.exports.IOCluster = function (options) {
 			});
 			
 			dataServer.on('exit', function () {
-				self.emit('error', new Error('nData server at port ' + options.stores[i].port + ' exited'));
+				self.emit('error', new Error('nData server at port ' + curStore.port + ' exited'));
 				launchServer(i);
 			});
 		};
@@ -406,11 +410,15 @@ var IOClusterClient = module.exports.IOClusterClient = function (options) {
 	this._keyManager = new KeyManager();
 	this._ready = false;
 	
-	var dataClient;
+	var dataClient, curStore;
 	var dataClients = [];
 	
 	for (var i in options.stores) {
-		dataClient = ndata.createClient(options.stores[i].port, options.dataKey);
+		curStore = options.stores[i];
+		if (typeof curStore == 'number') {
+			curStore = {port: curStore};
+		}
+		dataClient = ndata.createClient(curStore.port, options.dataKey);
 		dataClients.push(dataClient);
 	}
 	
