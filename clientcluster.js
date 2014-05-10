@@ -36,7 +36,6 @@ var ClientCluster = function (clients) {
 	];
 	
 	var clientUtils = [
-		'stringify',
 		'extractKeys',
 		'extractValues'
 	];
