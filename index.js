@@ -299,6 +299,38 @@ Session.prototype.ns = function (namespace) {
 };
 
 
+/*
+	LocalSession is a session which resides in the current process. Its interface is identical to Session
+	but it has some performance optimizations.
+*/
+var LocalSession = function (sessionId, socketId, dataClient, eventEmitter, ioClusterClient, namespace) {
+	Session.call(this, sessionId, socketId, dataClient, eventEmitter, namespace);
+	this._ioClusterClient = ioClusterClient;
+};
+
+LocalSession.prototype = Object.create(Session.prototype);
+
+LocalSession.prototype.emit = function (event, data, callback) {
+	var sockets = this._ioClusterClient.getLocalSessionSockets(this.id);
+	for (var i in sockets) {
+		sockets[i].emit.apply(sockets[i], arguments);
+	}
+};
+
+LocalSession.prototype.transmit = function (event, data, callback) {
+	var sockets = this._ioClusterClient.getLocalSessionSockets(this.id);
+	for (var i in sockets) {
+		if (i != this.socketId) {
+			sockets[i].emit.apply(sockets[i], arguments);
+		}
+	}
+};
+
+LocalSession.prototype.ns = function (namespace) {
+	return new LocalSession(this.id, this.socketId, this._dataClient, this._eventEmitter, this._ioClusterClient, namespace);
+};
+
+
 var Socket = function (socketId, dataClient, eventEmitter, namespace) {
 	this.id = socketId;
 	this._dataClient = dataClient;
@@ -719,6 +751,14 @@ IOClusterClient.prototype.unbind = function (socket, callback) {
 	], callback);
 };
 
+IOClusterClient.prototype.getLocalSessionSockets = function (ssid) {
+	var session = this._sessions[ssid];
+	if (session == null) {
+		return {};
+	}
+	return session.sockets || {};
+};
+
 IOClusterClient.prototype.getAddressSockets = function (ipAddress, callback) {
 	var self = this;
 	
@@ -738,8 +778,12 @@ IOClusterClient.prototype.global = function (socketId) {
 	return new Global(socketId, this._privClientCluster, this._pubClientCluster, this._globalEmitter);
 };
 
-IOClusterClient.prototype.session = function (sessionId, socketId) {
-	return new Session(sessionId, socketId, this._privClientCluster.map(sessionId)[0], this._sessionEmitter);
+IOClusterClient.prototype.session = function (sessionId, socketId, isLocal) {
+	if (isLocal) {
+		return new LocalSession(sessionId, socketId, this._privClientCluster.map(sessionId)[0], this._sessionEmitter, this);
+	} else {
+		return new Session(sessionId, socketId, this._privClientCluster.map(sessionId)[0], this._sessionEmitter);
+	}
 };
 
 IOClusterClient.prototype.socket = function (socketId, sessionId) {
