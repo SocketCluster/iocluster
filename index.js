@@ -295,19 +295,20 @@ var LocalSession = function (sessionId, socketId, dataClient, eventEmitter, ioCl
 LocalSession.prototype = Object.create(Session.prototype);
 
 LocalSession.prototype.emit = function (event, data, callback) {
-  var sockets = this._ioClusterClient.getLocalSessionSockets(this.id);
-  for (var i in sockets) {
-    sockets[i].emit.apply(sockets[i], arguments);
-  }
+   this._ioClusterClient._handleSessionEvent({
+    event: event,
+    session: this.id,
+    data: data
+   });
 };
 
 LocalSession.prototype.transmit = function (event, data, callback) {
-  var sockets = this._ioClusterClient.getLocalSessionSockets(this.id);
-  for (var i in sockets) {
-    if (i != this.socketId) {
-      sockets[i].emit.apply(sockets[i], arguments);
-    }
-  }
+  this._ioClusterClient._handleSessionEvent({
+    event: event,
+    session: this.id,
+    data: data,
+    exclude: this.socketId
+  });
 };
 
 
@@ -628,7 +629,7 @@ IOClusterClient.prototype._subscribe = function (socket, event) {
   socket.subscriptions[event] = true;
 };
 
-IOClusterClient.prototype._unsubscribe = function (socket, event) {
+IOClusterClient.prototype._unsubscribeFromEvent = function (socket, event) {
   if (this._eventQueues[event] && this._eventQueues[event][socket.id]) {
     delete this._eventQueues[event][socket.id];
     if (socket.subscriptions) {
@@ -637,6 +638,16 @@ IOClusterClient.prototype._unsubscribe = function (socket, event) {
     if (isEmpty(this._eventQueues[event])) {
       delete this._eventQueues[event];
     }
+  }
+};
+
+IOClusterClient.prototype._unsubscribe = function (socket, events) {
+  if (events instanceof Array) {
+    for (var i in events) {
+      this._unsubscribeFromEvent(socket, events[i]);
+    }
+  } else {
+    this._unsubscribeFromEvent(socket, events);
   }
 };
 
@@ -811,7 +822,9 @@ IOClusterClient.prototype._handleSocketEvent = function (e) {
   
   if (this._sockets[e.socket] != null) {
     var socket = this._sockets[e.socket];
-    socket.emit(e.event, e.data);
+    if (this._eventQueues[e.event] && this._eventQueues[e.event][socket.id]) {
+      socket.emit(e.event, e.data);
+    }
   }
 };
 
@@ -824,7 +837,9 @@ IOClusterClient.prototype._handleSessionEvent = function (e) {
     
     for (var i in sockets) {
       socket = sockets[i];
-      if (socket.id != e.exclude) {
+      if (socket.id != e.exclude && this._eventQueues[e.event] &&
+        this._eventQueues[e.event][socket.id]) {
+        
         socket.emit(e.event, e.data);
       }
     }
