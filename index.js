@@ -451,7 +451,6 @@ var IOClusterClient = module.exports.IOClusterClient = function (options) {
   
   this._privateMapper = function (key, method, clientIds) {
     if (eventMethods[method]) {
-      console.log('map', method, key[2], hasher(key[2]));
       return hasher(key[2]);
     }
     if (method == 'query' || method == 'run') {
@@ -624,7 +623,7 @@ IOClusterClient.prototype._subscribe = function (socket, event, callback) {
     }
     socket.subscriptions[event] = true;
     
-    callback(err);
+    callback && callback(err);
   };
   
   if (this._eventQueues[event] == null) {
@@ -636,7 +635,7 @@ IOClusterClient.prototype._subscribe = function (socket, event, callback) {
   }
 };
 
-IOClusterClient.prototype._unsubscribeFromEvent = function (socket, event, callback) {
+IOClusterClient.prototype._unsubscribeSingle = function (socket, event, callback) {
   var self = this;
   
   if (this._eventQueues[event] && this._eventQueues[event][socket.id]) {
@@ -648,10 +647,10 @@ IOClusterClient.prototype._unsubscribeFromEvent = function (socket, event, callb
       var eventKey = this._keyManager.getGlobalEventKey(event);
       this._privClientCluster.unwatch(eventKey, null, function (err) {
         delete self._eventQueues[event];
-        callback(err);
+        callback && callback(err);
       });
     } else {
-      callback();
+      callback && callback();
     }
   }
 };
@@ -659,18 +658,25 @@ IOClusterClient.prototype._unsubscribeFromEvent = function (socket, event, callb
 IOClusterClient.prototype._unsubscribe = function (socket, events, callback) {
   var self = this;
   
+  if (events == null) {
+    events = [];
+    for (var event in socket.subscriptions) {
+      events.push(event);
+    }
+  }
+  
   if (events instanceof Array) {
     var tasks = [];
     for (var i in events) {
       (function (event) {
         tasks.push(function (cb) {
-          self._unsubscribeFromEvent(socket, event, cb);
+          self._unsubscribeSingle(socket, event, cb);
         });
       })(events[i]);
     }
     async.waterfall(tasks, callback);
   } else {
-    this._unsubscribeFromEvent(socket, events, callback);
+    this._unsubscribeSingle(socket, events, callback);
   }
 };
 
@@ -780,6 +786,10 @@ IOClusterClient.prototype.unbind = function (socket, callback) {
     },
     function () {
       var cb = arguments[arguments.length - 1];
+      self._unsubscribe(socket, null, cb);
+    },
+    function () {
+      var cb = arguments[arguments.length - 1];
       delete self._sockets[socket.id];
       self._privClientCluster.remove(self._keyManager.getSessionDataKey(socket.ssid, ['__meta', 'sockets', socket.id]));
       if (self._addresses[socket.address]) {
@@ -799,11 +809,6 @@ IOClusterClient.prototype.unbind = function (socket, callback) {
         self._privClientCluster.unwatch(socket.sessionEventKey, null, cb);
       } else {
         cb();
-      }
-      
-      var subs = socket.subscriptions;
-      for (var i in subs) {
-        self._unsubscribe(socket, i);
       }
     }
   ], callback);
