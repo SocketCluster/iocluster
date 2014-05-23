@@ -614,7 +614,7 @@ IOClusterClient.prototype._handshake = function (socket, callback) {
   }
 };
 
-IOClusterClient.prototype._subscribe = function (socket, event, callback) {
+IOClusterClient.prototype._subscribeSingle = function (socket, event, callback) {
   var self = this;
   
   if (this._socketEventLimit && socket.subscriptionCount >= this._socketEventLimit) {
@@ -638,6 +638,24 @@ IOClusterClient.prototype._subscribe = function (socket, event, callback) {
     } else {
       addSubscription();
     }
+  }
+};
+
+IOClusterClient.prototype._subscribe = function (socket, events, callback) {
+  var self = this;
+  
+  if (events instanceof Array) {
+    var tasks = [];
+    for (var i in events) {
+      (function (event) {
+        tasks.push(function (cb) {
+          self._subscribeSingle(socket, event, cb);
+        });
+      })(events[i]);
+    }
+    async.waterfall(tasks, callback);
+  } else {
+    this._subscribeSingle(socket, events, callback);
   }
 };
 
