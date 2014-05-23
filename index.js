@@ -404,6 +404,7 @@ var IOClusterClient = module.exports.IOClusterClient = function (options) {
   this._dataExpiry = options.dataExpiry;
   this._connectTimeout = options.connectTimeout;
   this._addressSocketLimit = options.addressSocketLimit;
+  this._socketEventLimit = options.socketEventLimit;
   this._heartRate = options.heartRate || 4;
   
   // Expressed in milliseconds.
@@ -616,22 +617,27 @@ IOClusterClient.prototype._handshake = function (socket, callback) {
 IOClusterClient.prototype._subscribe = function (socket, event, callback) {
   var self = this;
   
-  var addSubscription = function (err) {
-    self._eventQueues[event][socket.id] = socket;
-    if (socket.subscriptions == null) {
-      socket.subscriptions = {};
-    }
-    socket.subscriptions[event] = true;
-    
-    callback && callback(err);
-  };
-  
-  if (this._eventQueues[event] == null) {
-    this._eventQueues[event] = {};
-    var eventKey = this._keyManager.getGlobalEventKey(event);
-    this._privClientCluster.watch(eventKey, this._handleGlobalEvent.bind(this, event), addSubscription);
+  if (this._socketEventLimit && socket.subscriptionCount >= this._socketEventLimit) {
+    callback('Socket ' + socket.id + ' tried to exceed the event subscription limit of ' +
+      this._socketEventLimit, true);
   } else {
-    addSubscription();
+    var addSubscription = function (err) {
+      self._eventQueues[event][socket.id] = socket;
+      if (!err && socket.subscriptions[event] == null) {
+        socket.subscriptionCount++;
+      }
+      socket.subscriptions[event] = true;
+      
+      callback && callback(err);
+    };
+    
+    if (this._eventQueues[event] == null) {
+      this._eventQueues[event] = {};
+      var eventKey = this._keyManager.getGlobalEventKey(event);
+      this._privClientCluster.watch(eventKey, this._handleGlobalEvent.bind(this, event), addSubscription);
+    } else {
+      addSubscription();
+    }
   }
 };
 
@@ -640,9 +646,9 @@ IOClusterClient.prototype._unsubscribeSingle = function (socket, event, callback
   
   if (this._eventQueues[event] && this._eventQueues[event][socket.id]) {
     delete this._eventQueues[event][socket.id];
-    if (socket.subscriptions) {
-      delete socket.subscriptions[event];
-    }
+    delete socket.subscriptions[event];
+    socket.subscriptionCount--;
+    
     if (isEmpty(this._eventQueues[event])) {
       var eventKey = this._keyManager.getGlobalEventKey(event);
       this._privClientCluster.unwatch(eventKey, null, function (err) {
@@ -690,6 +696,8 @@ IOClusterClient.prototype.bind = function (socket, callback) {
   socket.sessionEventKey = this._keyManager.getSessionEventKey(socket.ssid);
   socket.sessionDataKey = this._keyManager.getSessionDataKey(socket.ssid);
   socket.addressDataKey = this._keyManager.getGlobalDataKey(['__meta', 'addresses', socket.address]);
+  socket.subscriptions = {};
+  socket.subscriptionCount = 0;
   
   this._handshake(socket, function (err, notice) {
     if (err) {
@@ -724,10 +732,15 @@ IOClusterClient.prototype.bind = function (socket, callback) {
       };
       
       socket.on('subscribe', function (event, res) {
-        self._subscribe(socket, event, function (err) {
+        self._subscribe(socket, event, function (err, isNotice) {
           if (err) {
             res.error(err);
-            self.emit('error', err);
+            
+            if (isNotice) {
+              self.emit('notice', err);
+            } else {
+              self.emit('error', err);
+            }
           } else {
             res.end();
           }
@@ -735,10 +748,15 @@ IOClusterClient.prototype.bind = function (socket, callback) {
       });
       
       socket.on('unsubscribe', function (event, res) {
-        self._unsubscribe(socket, event, function (err) {
+        self._unsubscribe(socket, event, function (err, isNotice) {
           if (err) {
             res.error(err);
-            self.emit('error', err);
+            
+            if (isNotice) {
+              self.emit('notice', err);
+            } else {
+              self.emit('error', err);
+            }
           } else {
             res.end();
           }
