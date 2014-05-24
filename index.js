@@ -454,13 +454,15 @@ var IOClusterClient = module.exports.IOClusterClient = function (options) {
     if (eventMethods[method]) {
       return hasher(key[2]);
     }
+    
     if (method == 'query' || method == 'run') {
       return hasher(key.mapIndex || 0);
     }
     if (key instanceof Array) {
-      if (key[3] == 'addresses') {
+      if (key[3] == 'addresses' && key[2] == '__meta') {
         return hasher(key[4]);
       }
+      
       return hasher(key[2]);
     }
     return hasher(key);
