@@ -1,6 +1,6 @@
 {
   "name": "iocluster",
-  "version": "0.9.18",
+  "version": "0.9.19",
   "description": "Realtime clustering engine",
   "keywords": [
     "iocluster",
@@ -20,7 +20,7 @@
   "dependencies": {
     "async": "0.1.22",
     "linkedlist": "1.0.1",
-    "ndata": ">= 0.9.37"
+    "ndata": ">= 1.0.0"
   },
   "main": "index",
   "engines": {
