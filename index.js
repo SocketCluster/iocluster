@@ -84,6 +84,7 @@ var isEmpty = function (obj) {
   return true;
 };
 
+
 var AbstractDataClient = function (dataClient) {
   this._dataClient = dataClient;
 };
@@ -192,11 +193,296 @@ AbstractDataClient.prototype.query = function() {
 };
 
 
-var Global = function (socketId, privClientCluster, pubClientCluster, eventEmitter) {
+var PubSubManager = function (privClientCluster, keyManager, socketEventLimit) {
+  this._privClientCluster = privClientCluster;
+  this._keyManager = keyManager;
+  //this._subscribers = {};
+  this._socketEventLimit = socketEventLimit;
+  this._globalEmitter = new EventEmitter();
+  this._sessionEmitters = {};
+  this._socketEmitters = {};
+  
+  this._privClientCluster.on('message', this._handleMessage.bind(this));
+};
+
+PubSubManager.prototype.watchSession = function (sessionId) {
+  this._sessionEmitters[sessionId] = new EventEmitter();
+};
+
+PubSubManager.prototype.unwatchSession = function (sessionId) {
+  this._sessionEmitters[sessionId].removeAllListeners();
+  delete this._sessionEmitters[sessionId];
+};
+
+PubSubManager.prototype.watchSocket = function (socketId) {
+  this._socketEmitters[socketId] = new EventEmitter();
+};
+
+PubSubManager.prototype.unwatchSocket = function (socketId) {
+  this._socketEmitters[socketId].removeAllListeners();
+  delete this._socketEmitters[socketId];
+};
+
+PubSubManager.prototype.attachClientSocket = function (socket, events, callback) {
+  var self = this;
+  
+  if (events instanceof Array) {
+    var tasks = [];
+    for (var i in events) {
+      (function (event) {
+        tasks.push(function (cb) {
+          self._attachSingleClient(socket, event, cb);
+        });
+      })(events[i]);
+    }
+    async.waterfall(tasks, callback);
+  } else {
+    this._attachSingleClient(socket, events, callback);
+  }
+};
+
+PubSubManager.prototype.detachClientSocket = function (socket, events, callback) {
+  var self = this;
+  
+  if (events == null) {
+    events = [];
+    for (var event in socket.subscriptions) {
+      events.push(event);
+    }
+  }
+  
+  if (events instanceof Array) {
+    var tasks = [];
+    for (var i in events) {
+      (function (event) {
+        tasks.push(function (cb) {
+          self._detachSingleClient(socket, event, cb);
+        });
+      })(events[i]);
+    }
+    async.waterfall(tasks, callback);
+  } else {
+    this._detachSingleClient(socket, events, callback);
+  }
+};
+
+PubSubManager.prototype.publishGlobalEvent = function (event, data, callback) {
+  this._privClientCluster.publish(this._keyManager.getGlobalEventKey(event), data, callback);
+};
+
+PubSubManager.prototype.onGlobalEvent = function (event, handler, callback) {
+  this._globalEmitter.on(event, handler);
+  var eventKey = this._keyManager.getGlobalEventKey(event);
+  this._privClientCluster.subscribe(eventKey, callback);
+};
+
+PubSubManager.prototype.removeGlobalListener = function (event, handler, callback) {
+  this._globalEmitter.removeListener(event, handler);
+
+  if (this._globalEmitter.listeners(event).length < 1) {
+    var eventKey = this._keyManager.getGlobalEventKey(event);
+    this._privClientCluster.unsubscribe(eventKey, callback);
+  }
+};
+
+PubSubManager.prototype.removeAllGlobalListeners = function (event, callback) {
+  if (event instanceof Function) {
+    callback = event;
+    event = null;
+  }
+  if (event) {
+    this._globalEmitter.removeAllListeners(event);
+  } else {
+    this._globalEmitter.removeAllListeners();
+  }
+  
+  var eventKey = this._keyManager.getGlobalEventKey(event);
+  this._privClientCluster.unsubscribe(eventKey, callback);
+};
+
+PubSubManager.prototype.globalListeners = function (event) {
+  return this._globalEmitter.listeners(event);
+};
+
+PubSubManager.prototype.publishSessionEvent = function (sessionId, event, data, excludeSocket, callback) {
+  var eventData = {session: sessionId, event: event, data: data};
+  if (excludeSocket != null) {
+    eventData.exclude = excludeSocket;
+  }
+  this._privClientCluster.publish(this._keyManager.getSessionEventKey(sessionId), eventData, callback);
+};
+
+PubSubManager.prototype.onSessionEvent = function (sessionId, event, handler, callback) {
+  this._sessionEmitters[sessionId].on(event, handler);
+  callback && callback();
+};
+
+PubSubManager.prototype.removeSessionListener = function (sessionId, event, handler, callback) {
+  this._sessionEmitters[sessionId].removeListener(event, handler);
+  callback && callback();
+};
+
+PubSubManager.prototype.removeAllSessionListeners = function (sessionId, event, callback) {
+  if (event instanceof Function) {
+    callback = event;
+    event = null;
+  }
+  if (event) {
+    this._sessionEmitters[sessionId].removeAllListeners(event);
+  } else {
+    this._sessionEmitters[sessionId].removeAllListeners();
+  }
+  callback && callback();
+};
+
+PubSubManager.prototype.sessionListeners = function (sessionId, event) {
+  return this._sessionEmitters[sessionId].listeners(event);
+};
+
+PubSubManager.prototype.publishSocketEvent = function (socketId, event, data, excludeSocket, callback) {
+  var eventData = {socket: socketId, event: event, data: data};
+  if (excludeSocket != null) {
+    eventData.exclude = excludeSocket;
+  }
+  this._privClientCluster.publish(this._keyManager.getSocketEventKey(socketId), eventData, callback);
+};
+
+PubSubManager.prototype.onSocketEvent = function (socketId, event, handler, callback) {
+  this._socketEmitters[socketId].on(event, handler);
+  callback && callback();
+};
+
+PubSubManager.prototype.removeSocketListener = function (socketId, event, handler, callback) {
+  this._socketEmitters[socketId].removeListener(event, handler);
+  callback && callback();
+};
+
+PubSubManager.prototype.removeAllSocketListeners = function (socketId, event, callback) {
+  if (event instanceof Function) {
+    callback = event;
+    event = null;
+  }
+  if (event) {
+    this._socketEmitters[socketId].removeAllListeners(event);
+  } else {
+    this._socketEmitters[socketId].removeAllListeners();
+  }
+  callback && callback();
+};
+
+PubSubManager.prototype.socketListeners = function (socketId, event) {
+  return this._socketEmitters[socketId].listeners(event);
+};
+
+PubSubManager.prototype._attachSingleClient = function (socket, event, callback) {
+  var self = this;
+  
+  if (this._socketEventLimit && socket.subscriptionCount >= this._socketEventLimit) {
+    callback('Socket ' + socket.id + ' tried to exceed the event subscription limit of ' +
+      this._socketEventLimit, true);
+  } else {
+  
+    var triggerClientEvent = function (e) {
+      if (socket.id != e.exclude) {
+        socket.emit(e.event, e.data);
+      }
+    };
+    
+    var addSubscription = function (err) {
+      if (!err) {
+        if (socket.eventHandler[event] == null) {
+          socket.subscriptionCount++;
+        }
+        socket.eventHandler[event] = triggerClientEvent;
+
+        self._globalEmitter.on(event, triggerClientEvent);
+        self._sessionEmitters[socket.ssid].on(event, triggerClientEvent);
+        self._socketEmitters[socket.id].on(event, triggerClientEvent);
+      }
+      callback && callback(err);
+    };
+    
+    var eventKey = this._keyManager.getGlobalEventKey(event);
+    this._privClientCluster.subscribe(eventKey, addSubscription);
+  }
+};
+
+PubSubManager.prototype._detachSingleClient = function (socket, event, callback) {
+  var self = this;
+  
+  var eventHandler = socket.eventHandler[event];
+  self._globalEmitter.removeListener(event, eventHandler);
+  self._sessionEmitters[socket.ssid].removeListener(event, eventHandler);
+  self._socketEmitters[socket.id].removeListener(event, eventHandler);
+  
+  if (socket.subscriptionCount != null) {
+    socket.subscriptionCount--;
+  }
+  
+  var listeners = self._globalEmitter.listeners(event);
+  if (listeners.length < 1) {
+    var eventKey = this._keyManager.getGlobalEventKey(event);
+    this._privClientCluster.unsubscribe(eventKey, callback);
+  } else {
+    callback && callback();
+  }
+};
+
+PubSubManager.prototype._handleSocketMessage = function (e) {
+  this._socketEmitters[e.socket].emit(e.event, e);
+  
+  if (this._sockets[e.socket] != null) {
+    var socket = this._sockets[e.socket];
+    if (this._subscribers[e.event] && this._subscribers[e.event][socket.id]) {
+      socket.emit(e.event, e.data);
+    }
+  }
+};
+
+PubSubManager.prototype._handleSessionMessage = function (e) {
+  this._sessionEmitters[e.session].emit(e.event, e);
+  
+  if (this._sessions[e.session] != null) {
+    var sockets = this._sessions[e.session].sockets;
+    var socket;
+    
+    for (var i in sockets) {
+      socket = sockets[i];
+      if (socket.id != e.exclude && this._subscribers[e.event] &&
+        this._subscribers[e.event][socket.id]) {
+        
+        socket.emit(e.event, e.data);
+      }
+    }
+  }
+};
+
+PubSubManager.prototype._handleMessage = function (channel, message) {
+  if (this._keyManager.isGlobalEventKey(channel)) {    
+    var globalEvent = channel[2];
+    if (globalEvent != null) {
+      this._globalEmitter.emit(globalEvent, message);
+
+      var subscribers = this._subscribers[globalEvent];
+      var socket;
+      for (var i in subscribers) {
+        socket = subscribers[i];
+        socket.emit(globalEvent, message);
+      }
+    }
+  } else if (this._keyManager.isSessionEventKey(channel)) {
+    this._handleSessionMessage(message);
+  } else if (this._keyManager.isSocketEventKey(channel)) {
+    this._handleSocketMessage(message);
+  }
+};
+
+
+var Global = function (socketId, privClientCluster, pubClientCluster, pubSubManager) {
   this.socketId = socketId;
   this._privClientCluster = privClientCluster;
   this._pubClientCluster = pubClientCluster;
-  this._eventEmitter = eventEmitter;
+  this._pubSubManager = pubSubManager;
   this._keyManager = new KeyManager();
   
   AbstractDataClient.call(this, this._pubClientCluster);  
@@ -209,15 +495,15 @@ Global.prototype._localizeDataKey = function (key) {
 };
 
 Global.prototype.broadcast = function (event, data, callback) {
-  this._privClientCluster.publish(this._keyManager.getGlobalEventKey(event), data, callback);
+  this._pubSubManager.publishGlobalEvent(event, data, callback);
 };
 
 Global.prototype._emit = function (sessionId, event, data, excludeCurrentSocket, callback) {
-  var eventData = {session: sessionId, event: event, data: data};
+  var excludeSocket = null;
   if (excludeCurrentSocket) {
-    eventData.exclude = this.socketId;
+    excludeSocket = this.socketId;
   }
-  this._privClientCluster.publish(this._keyManager.getSessionEventKey(sessionId), eventData, callback);
+  this._pubSubManager.publishSessionEvent(sessionId, event, data, excludeSocket, callback);
 };
 
 Global.prototype.emit = function (sessionId, event, data, callback) {
@@ -229,33 +515,15 @@ Global.prototype.transmit = function (sessionId, event, data, callback) {
 };
 
 Global.prototype.on = function (event, handler, callback) {
-  this._eventEmitter.on(event, handler);
-  var eventKey = this._keyManager.getGlobalEventKey(event);
-  this._privClientCluster.subscribe(eventKey, callback);
+  this._pubSubManager.onGlobalEvent(event, handler, callback);
 };
 
 Global.prototype.removeListener = function (event, handler, callback) {
-  this._eventEmitter.removeListener(event, handler);
-
-  if (this._eventEmitter.listeners(event).length < 1) {
-    var eventKey = this._keyManager.getGlobalEventKey(event);
-    this._privClientCluster.unsubscribe(eventKey, callback);
-  }
+  this._pubSubManager.removeGlobalListener(event, handler, callback);
 };
 
 Global.prototype.removeAllListeners = function (event, callback) {
-  if (event instanceof Function) {
-    callback = event;
-    event = null;
-  }
-  if (event) {
-    this._eventEmitter.removeAllListeners(event);
-  } else {
-    this._eventEmitter.removeAllListeners();
-  }
-  
-  var eventKey = this._keyManager.getGlobalEventKey(event);
-  this._privClientCluster.unsubscribe(eventKey, callback);
+  this._pubSubManager.removeAllGlobalListeners(event, callback);
 };
 
 /*
@@ -270,7 +538,7 @@ Global.prototype.off = function () {
 };
 
 Global.prototype.listeners = function (event) {
-  return this._eventEmitter.listeners(event);
+  return this._pubSubManager.globalListeners(event);
 };
 
 Global.prototype.setMapper = function (mapper) {
@@ -286,11 +554,11 @@ Global.prototype.map = function () {
 };
 
 
-var Session = function (sessionId, socketId, dataClient, eventEmitter) {
+var Session = function (sessionId, socketId, dataClient, pubSubManager) {
   this.id = sessionId;
   this.socketId = socketId;
   this._dataClient = dataClient;
-  this._eventEmitter = eventEmitter;
+  this._pubSubManager = pubSubManager;
   this._keyManager = new KeyManager();
 };
 
@@ -313,11 +581,13 @@ Session.prototype.clearAuth = function(callback) {
 };
 
 Session.prototype.emit = function (event, data, callback) {
-  this._dataClient.publish(this._keyManager.getSessionEventKey(this.id), {session: this.id, event: event, data: data}, callback);
+  //this._dataClient.publish(this._keyManager.getSessionEventKey(this.id), {session: this.id, event: event, data: data}, callback);
+  this._pubSubManager.publishSessionEvent(this.id, event, data, null, callback);
 };
 
 Session.prototype.transmit = function (event, data, callback) {
-  this._dataClient.publish(this._keyManager.getSessionEventKey(this.id), {session: this.id, event: event, data: data, exclude: this.socketId}, callback);
+  //this._dataClient.publish(this._keyManager.getSessionEventKey(this.id), {session: this.id, event: event, data: data, exclude: this.socketId}, callback);
+  this._pubSubManager.publishSessionEvent(this.id, event, data, this.socketId, callback);
 };
 
 Session.prototype.countSockets = function (callback) {
@@ -325,25 +595,27 @@ Session.prototype.countSockets = function (callback) {
 };
 
 Session.prototype.on = function (event, handler, callback) {
-  var eventKey = this._keyManager.getSessionEventKey(this.id, event);
-  this._eventEmitter.on(eventKey, handler);
-  callback && callback();
+  this._pubSubManager.onSessionEvent(this.id, event, handler, callback);
+  //this._eventEmitter.on(event, handler);
+  //callback && callback();
 };
 
 Session.prototype.removeListener = function (event, handler, callback) {
-  var eventKey = this._keyManager.getSessionEventKey(this.id, event);
-  this._eventEmitter.removeListener(eventKey, handler);
-  callback && callback();
+  this._pubSubManager.removeSessionListener(this.id, event, handler, callback);
+  //this._eventEmitter.removeListener(event, handler);
+  //callback && callback();
 };
 
 Session.prototype.removeAllListeners = function (event, callback) {
+  this._pubSubManager.removeAllSessionListeners(this.id, event, callback);
+/*
   if (event && !(event instanceof Function)) {
-    var eventKey = this._keyManager.getSessionEventKey(this.id, event);
-    this._eventEmitter.removeAllListeners(eventKey);
+    this._eventEmitter.removeAllListeners(event);
   } else {
     this._eventEmitter.removeAllListeners();
   }
   callback && callback();
+  */
 };
 
 /*
@@ -358,16 +630,16 @@ Session.prototype.off = function () {
 };
 
 Session.prototype.listeners = function (event) {
-  var eventKey = this._keyManager.getSessionEventKey(this.id, event);
-  return this._eventEmitter.listeners(eventKey);
+  return this._pubSubManager.sessionListeners(this.id, event);
+  //return this._eventEmitter.listeners(event);
 };
 
 /*
   LocalSession is a session which resides in the current process. Its interface is identical to Session
   but it has some performance optimizations.
 */
-var LocalSession = function (sessionId, socketId, dataClient, eventEmitter, ioClusterClient) {
-  Session.call(this, sessionId, socketId, dataClient, eventEmitter);
+var LocalSession = function (sessionId, socketId, dataClient, pubSubManager, ioClusterClient) {
+  Session.call(this, sessionId, socketId, dataClient, pubSubManager);
   this._ioClusterClient = ioClusterClient;
 };
 
@@ -391,10 +663,10 @@ LocalSession.prototype.transmit = function (event, data, callback) {
 };
 
 
-var Socket = function (socketId, dataClient, eventEmitter) {
+var Socket = function (socketId, dataClient, pubSubManager) {
   this.id = socketId;
   this._dataClient = dataClient;
-  this._eventEmitter = eventEmitter;
+  this._pubSubManager = pubSubManager;
   this._keyManager = new KeyManager();
 };
 
@@ -405,29 +677,32 @@ Socket.prototype._localizeDataKey = function (key) {
 };
 
 Socket.prototype.emit = function (event, data, callback) {
-  this._dataClient.publish(this._keyManager.getSocketEventKey(this.id), {socket: this.id, event: event, data: data}, callback);
+  //this._dataClient.publish(this._keyManager.getSocketEventKey(this.id), {socket: this.id, event: event, data: data}, callback);
+  this._pubSubManager.publishSocketEvent(this.id, event, data, callback);
 };
 
 Socket.prototype.on = function (event, handler, callback) {
-  var eventKey = this._keyManager.getSocketEventKey(this.id, event);
-  this._eventEmitter.on(eventKey, handler);
-  callback && callback();
+  this._pubSubManager.onSocketEvent(this.id, event, handler, callback);
+  //this._eventEmitter.on(event, handler);
+  //callback && callback();
 };
 
 Socket.prototype.removeListener = function (event, handler, callback) {
-  var eventKey = this._keyManager.getSocketEventKey(this.id, event);
-  this._eventEmitter.removeListener(eventKey, handler);
-  callback && callback();
+  //this._eventEmitter.removeListener(event, handler);
+  //callback && callback();
+  this._pubSubManager.removeSocketListener(this.id, event, handler, callback);
 };
 
 Socket.prototype.removeAllListeners = function (event, callback) {
+  this._pubSubManager.removeAllSocketListeners(this.id, event, callback);
+  /*
   if (event && !(event instanceof Function)) {
-    var eventKey = this._keyManager.getSocketEventKey(this.id, event);
-    this._eventEmitter.removeAllListeners(eventKey);
+    this._eventEmitter.removeAllListeners(event);
   } else {
     this._eventEmitter.removeAllListeners();
   }
   callback && callback();
+  */
 };
 
 /*
@@ -442,8 +717,8 @@ Socket.prototype.off = function () {
 };
 
 Socket.prototype.listeners = function (event) {
-  var eventKey = this._keyManager.getSocketEventKey(this.id, event);
-  return this._eventEmitter.listeners(eventKey);
+  //return this._eventEmitter.listeners(event);
+  return this._pubSubManager.socketListeners(this.id, event);
 };
 
 
@@ -727,97 +1002,6 @@ IOClusterClient.prototype._handshake = function (socket, callback) {
   }
 };
 
-IOClusterClient.prototype._subscribeSingle = function (socket, event, callback) {
-  var self = this;
-  
-  if (this._socketEventLimit && socket.subscriptionCount >= this._socketEventLimit) {
-    callback('Socket ' + socket.id + ' tried to exceed the event subscription limit of ' +
-      this._socketEventLimit, true);
-  } else {
-    var addSubscription = function (err) {
-      self._subscribers[event][socket.id] = socket;
-      if (!err && socket.subscriptions[event] == null) {
-        socket.subscriptionCount++;
-      }
-      socket.subscriptions[event] = true;
-      
-      callback && callback(err);
-    };
-    
-    if (this._subscribers[event] == null) {
-      this._subscribers[event] = {};
-      var eventKey = this._keyManager.getGlobalEventKey(event);
-      this._privClientCluster.subscribe(eventKey, addSubscription);
-    } else {
-      addSubscription();
-    }
-  }
-};
-
-IOClusterClient.prototype._subscribe = function (socket, events, callback) {
-  var self = this;
-  
-  if (events instanceof Array) {
-    var tasks = [];
-    for (var i in events) {
-      (function (event) {
-        tasks.push(function (cb) {
-          self._subscribeSingle(socket, event, cb);
-        });
-      })(events[i]);
-    }
-    async.waterfall(tasks, callback);
-  } else {
-    this._subscribeSingle(socket, events, callback);
-  }
-};
-
-IOClusterClient.prototype._unsubscribeSingle = function (socket, event, callback) {
-  var self = this;
-  
-  if (this._subscribers[event] && this._subscribers[event][socket.id]) {
-    delete this._subscribers[event][socket.id];
-    delete socket.subscriptions[event];
-    socket.subscriptionCount--;
-    
-    if (isEmpty(this._subscribers[event])) {
-      var eventKey = this._keyManager.getGlobalEventKey(event);
-      // TODO: Not necessarily; what if Global is still listening?
-      this._privClientCluster.unsubscribe(eventKey, function (err) {
-        delete self._subscribers[event];
-        callback && callback(err);
-      });
-    } else {
-      callback && callback();
-    }
-  }
-};
-
-IOClusterClient.prototype._unsubscribe = function (socket, events, callback) {
-  var self = this;
-  
-  if (events == null) {
-    events = [];
-    for (var event in socket.subscriptions) {
-      events.push(event);
-    }
-  }
-  
-  if (events instanceof Array) {
-    var tasks = [];
-    for (var i in events) {
-      (function (event) {
-        tasks.push(function (cb) {
-          self._unsubscribeSingle(socket, event, cb);
-        });
-      })(events[i]);
-    }
-    async.waterfall(tasks, callback);
-  } else {
-    this._unsubscribeSingle(socket, events, callback);
-  }
-};
-
 IOClusterClient.prototype.bind = function (socket, callback) {
   var self = this;
   
@@ -936,6 +1120,7 @@ IOClusterClient.prototype.unbind = function (socket, callback) {
     },
     function () {
       var cb = arguments[arguments.length - 1];
+      self._socketEmitter.removeAllListeners(socket.id);
       self._unsubscribe(socket, null, cb);
     },
     function () {
@@ -954,6 +1139,7 @@ IOClusterClient.prototype.unbind = function (socket, callback) {
       }
       
       if (self._sessions[socket.ssid] && isEmpty(self._sessions[socket.ssid].sockets)) {
+        self._sessionEmitter.removeAllListeners(socket.ssid);
         delete self._sessions[socket.ssid];
         self.emit('sessiondestroy', socket.ssid);
         self._privClientCluster.unsubscribe(socket.sessionEventKey, cb);
@@ -992,10 +1178,15 @@ IOClusterClient.prototype.global = function (socketId) {
 };
 
 IOClusterClient.prototype.session = function (sessionId, socketId, isLocal) {isLocal = false; // TODO: Remove
+  var currentSessionEmitter = new EventEmitter();
+  this._sessionEmitter.on(sessionId, function (message) {
+    currentSessionEmitter.emit(message.event, message.data);
+  });
+  
   if (isLocal) {
-    return new LocalSession(sessionId, socketId, this._privClientCluster.map(sessionId)[0], this._sessionEmitter, this);
+    return new LocalSession(sessionId, socketId, this._privClientCluster.map(sessionId)[0], currentSessionEmitter, this);
   } else {
-    return new Session(sessionId, socketId, this._privClientCluster.map(sessionId)[0], this._sessionEmitter);
+    return new Session(sessionId, socketId, this._privClientCluster.map(sessionId)[0], currentSessionEmitter);
   }
 };
 
@@ -1004,56 +1195,10 @@ IOClusterClient.prototype.socket = function (socketId, sessionId) {
     sessionId = this._sockets[socketId].ssid;
   }
   
-  return new Socket(socketId, this._privClientCluster.map(sessionId)[0], this._socketEmitter);
-};
-
-IOClusterClient.prototype._handleSocketMessage = function (e) {
-  var eventKey = this._keyManager.getSocketEventKey(e.socket, e.event);
-  this._socketEmitter.emit(eventKey, e.data);
+  var currentSocketEmitter = new EventEmitter();
+  this._socketEmitter.on(socketId, function (message) {
+    currentSocketEmitter.emit(message.event, message.data);
+  });
   
-  if (this._sockets[e.socket] != null) {
-    var socket = this._sockets[e.socket];
-    if (this._subscribers[e.event] && this._subscribers[e.event][socket.id]) {
-      socket.emit(e.event, e.data);
-    }
-  }
-};
-
-IOClusterClient.prototype._handleSessionMessage = function (e) {
-  var eventKey = this._keyManager.getSessionEventKey(e.session, e.event);
-  this._sessionEmitter.emit(eventKey, e.data);
-  
-  if (this._sessions[e.session] != null) {
-    var sockets = this._sessions[e.session].sockets;
-    var socket;
-    
-    for (var i in sockets) {
-      socket = sockets[i];
-      if (socket.id != e.exclude && this._subscribers[e.event] &&
-        this._subscribers[e.event][socket.id]) {
-        
-        socket.emit(e.event, e.data);
-      }
-    }
-  }
-};
-
-IOClusterClient.prototype._handleMessage = function (channel, message) {
-  if (this._keyManager.isGlobalEventKey(channel)) {    
-    var globalEvent = channel[2];
-    if (globalEvent != null) {
-      this._globalEmitter.emit(globalEvent, message);
-
-      var subscribers = this._subscribers[globalEvent];
-      var socket;
-      for (var i in subscribers) {
-        socket = subscribers[i];
-        socket.emit(globalEvent, message);
-      }
-    }
-  } else if (this._keyManager.isSessionEventKey(channel)) {
-    this._handleSessionMessage(message);
-  } else if (this._keyManager.isSocketEventKey(channel)) {
-    this._handleSocketMessage(message);
-  }
+  return new Socket(socketId, this._privClientCluster.map(sessionId)[0], currentSocketEmitter);
 };
