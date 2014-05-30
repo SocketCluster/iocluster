@@ -663,7 +663,7 @@ IOClusterClient.prototype.bind = function (socket, callback) {
       };
       
       socket.on('subscribe', function (event, res) {
-        self._subscribe(socket, event, function (err, isNotice) {
+        self._subscribeClientSocket(socket, event, function (err, isNotice) {
           if (err) {
             res.error(err);
             
@@ -679,7 +679,7 @@ IOClusterClient.prototype.bind = function (socket, callback) {
       });
       
       socket.on('unsubscribe', function (event, res) {
-        self._unsubscribe(socket, event, function (err, isNotice) {
+        self._unsubscribeClientSocket(socket, event, function (err, isNotice) {
           if (err) {
             res.error(err);
             
@@ -735,8 +735,10 @@ IOClusterClient.prototype.unbind = function (socket, callback) {
     },
     function () {
       var cb = arguments[arguments.length - 1];
+      socket.off('subscribe');
+      socket.off('unsubscribe');
       self._socketEmitter.removeAllListeners(socket.id);
-      self._unsubscribe(socket, null, cb);
+      self._unsubscribeClientSocket(socket, null, cb);
     },
     function () {
       var cb = arguments[arguments.length - 1];
@@ -811,135 +813,46 @@ IOClusterClient.prototype.socket = function (socketId, sessionId) {
   return new Socket(socketId, this._privateClientCluster.map(sessionId)[0], this);
 };
 
-
-IOClusterClient.prototype.bindClientSocket = function (socket, callback) {
-  var self = this;
-  
-  socket.on('subscribe', function (event, res) {
-    self.subscribeClientSocket(socket, event, function (err, isNotice) {
-      if (err) {
-        res.error(err);
-        
-        if (isNotice) {
-          self.emit('notice', err);
-        } else {
-          self.emit('error', err);
-        }
-      } else {
-        res.end();
-      }
-    });
-  });
-
-  socket.on('unsubscribe', function (event, res) {
-    self.unsubscribeClientSocket(socket, event, function (err, isNotice) {
-      if (err) {
-        res.error(err);
-        
-        if (isNotice) {
-          self.emit('notice', err);
-        } else {
-          self.emit('error', err);
-        }
-      } else {
-        res.end();
-      }
-    });
-  });
-  
-  async.parallel([
-    function (cb) {
-      self._privateClientCluster.subscribe(socket.eventKey, cb);
-    },
-    function (cb) {
-      self._privateClientCluster.subscribe(socket.sessionEventKey, cb);
-    },
-  ],
-  function (err) {
-    callback(err, socket);
-  });
+IOClusterClient.prototype.watchSessionServerEvents = function (sessionId, callback) {
+  if (this._sessionEmitters[sessionId] == null) {
+    this._sessionEmitters[sessionId] = new EventEmitter();
+  }
+  var eventKey = this._keyManager.getSessionEventKey(sessionId);
+  this._privateClientCluster.subscribe(eventKey, callback);
 };
 
-IOClusterClient.prototype.unbindClientSocket = function (socket, callback) {
-  socket.off('subscribe');
-  socket.off('unsubscribe');
-  
-  async.waterfall([
-    function (cb) {
-      self._privateClientCluster.unsubscribe(socket.eventKey, cb);
-    },
-    function (cb) {
-      self._socketEmitter.removeAllListeners(socket.id);
-      self.unsubscribeClientSocket(socket, null, cb);
-    }
-  ],
-  function (err) {
-    callback(err, socket);
-  });
-};
-
-IOClusterClient.prototype.watchSession = function (sessionId) {
-  this._sessionEmitters[sessionId] = new EventEmitter();
-  // TODO: Subscribe to privateClientCluster session
-};
-
-IOClusterClient.prototype.unwatchSession = function (sessionId) {
+/*
+  TODO: Fix this method and also unwatchSocketServerEvents.
+*/
+IOClusterClient.prototype.unwatchSessionServerEvents = function (sessionId, callback) {
   this._sessionEmitters[sessionId].removeAllListeners();
   delete this._sessionEmitters[sessionId];
-  // TODO: Unsubscribe from privateClientCluster session
+  
+  if (isEmpty(this._sessionSubscribers[sessionId])) {
+    var eventKey = this._keyManager.getSessionEventKey(sessionId);
+    this._privateClientCluster.unsubscribe(eventKey, callback);
+  } else {
+    callback && callback();
+  }
 };
 
-IOClusterClient.prototype.watchSocket = function (socketId) {
-  this._socketEmitters[socketId] = new EventEmitter();
-  // TODO: Subscribe to privateClientCluster socket
+IOClusterClient.prototype.watchSocketServerEvents = function (socketId, callback) {
+  if (this._socketEmitters[socketId] == null) {
+    this._socketEmitters[socketId] = new EventEmitter();
+  }
+  var eventKey = this._keyManager.getSocketEventKey(socketId);
+  this._privateClientCluster.subscribe(eventKey, callback);
 };
 
-IOClusterClient.prototype.unwatchSocket = function (socketId) {
+IOClusterClient.prototype.unwatchSocketServerEvents = function (socketId) {
   this._socketEmitters[socketId].removeAllListeners();
   delete this._socketEmitters[socketId];
-  // TODO: Unsubscribe from privateClientCluster socket
-};
-
-IOClusterClient.prototype.subscribeClientSocket = function (socket, events, callback) {
-  var self = this;
   
-  if (events instanceof Array) {
-    var tasks = [];
-    for (var i in events) {
-      (function (event) {
-        tasks.push(function (cb) {
-          self._subscribeSingleClient(socket, event, cb);
-        });
-      })(events[i]);
-    }
-    async.waterfall(tasks, callback);
+  if (isEmpty(this._socketSubscribers[socketId])) {
+    var eventKey = this._keyManager.getSocketEventKey(socketId);
+    this._privateClientCluster.unsubscribe(eventKey, callback);
   } else {
-    this._subscribeSingleClient(socket, events, callback);
-  }
-};
-
-IOClusterClient.prototype.unsubscribeClientSocket = function (socket, events, callback) {
-  var self = this;
-  
-  if (events == null) {
-    events = [];
-    for (var event in socket.eventSubscriptions) {
-      events.push(event);
-    }
-  }
-  
-  if (events instanceof Array) {
-    var tasks = [];
-    for (var i in events) {
-      (function (event) {
-        tasks.push(function (cb) {
-          self._unsubscribeSingleClient(socket, event, cb);
-        });
-      })(events[i]);
-    }
-    async.waterfall(tasks, callback);
-  } else {
-    this._unsubscribeSingleClient(socket, events, callback);
+    callback && callback();
   }
 };
 
@@ -1062,6 +975,49 @@ IOClusterClient.prototype.socketServerListeners = function (socketId, event) {
   return this._socketEmitters[socketId].listeners(event);
 };
 
+IOClusterClient.prototype._subscribeClientSocket = function (socket, events, callback) {
+  var self = this;
+  
+  if (events instanceof Array) {
+    var tasks = [];
+    for (var i in events) {
+      (function (event) {
+        tasks.push(function (cb) {
+          self._subscribeSingleClient(socket, event, cb);
+        });
+      })(events[i]);
+    }
+    async.waterfall(tasks, callback);
+  } else {
+    this._subscribeSingleClient(socket, events, callback);
+  }
+};
+
+IOClusterClient.prototype._unsubscribeClientSocket = function (socket, events, callback) {
+  var self = this;
+  
+  if (events == null) {
+    events = [];
+    for (var event in socket.eventSubscriptions) {
+      events.push(event);
+    }
+  }
+  
+  if (events instanceof Array) {
+    var tasks = [];
+    for (var i in events) {
+      (function (event) {
+        tasks.push(function (cb) {
+          self._unsubscribeSingleClient(socket, event, cb);
+        });
+      })(events[i]);
+    }
+    async.waterfall(tasks, callback);
+  } else {
+    this._unsubscribeSingleClient(socket, events, callback);
+  }
+};
+
 IOClusterClient.prototype._subscribeSingleClient = function (socket, event, callback) {
   var self = this;
   
@@ -1160,6 +1116,7 @@ IOClusterClient.prototype._unsubscribeSingleClient = function (socket, event, ca
     callback && callback();
   }
 };
+
 
 IOClusterClient.prototype._notifySubscribers = function (eventSubscribers, message) {
   for (var i in eventSubscribers) {
