@@ -180,6 +180,10 @@ Global.prototype.map = function () {
   return this._publicClientCluster.map.apply(this._publicClientCluster, arguments);
 };
 
+Global.prototype.destroy = function (callback) {
+  this.removeAllListeners(null, callback);
+};
+
 
 var Session = function (sessionId, socketId, dataClient, ioClusterClient) {
   this.id = sessionId;
@@ -233,6 +237,10 @@ Session.prototype.removeAllListeners = function (event, callback) {
 
 Session.prototype.listeners = function (event) {
   return this._ioClusterClient.sessionServerListeners(this.id, event);
+};
+
+Session.prototype.destroy = function (callback) {
+  this.removeAllListeners(null, callback);
 };
 
 /*
@@ -295,6 +303,10 @@ Socket.prototype.removeAllListeners = function (event, callback) {
 
 Socket.prototype.listeners = function (event) {
   return this._ioClusterClient.socketServerListeners(this.id, event);
+};
+
+Socket.prototype.destroy = function (callback) {
+  this.removeAllListeners(null, callback);
 };
 
 
