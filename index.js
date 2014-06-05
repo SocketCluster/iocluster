@@ -255,7 +255,7 @@ var LocalSession = function (sessionId, socketId, dataClient, ioClusterClient) {
 LocalSession.prototype = Object.create(Session.prototype);
 
 LocalSession.prototype.emit = function (event, data, callback) {
-   this._ioClusterClient.notifySessionSubscribers({
+   this._ioClusterClient.handleMessage(null, {
     session: this.id,
     event: event,
     data: data
@@ -263,7 +263,7 @@ LocalSession.prototype.emit = function (event, data, callback) {
 };
 
 LocalSession.prototype.transmit = function (event, data, callback) {
-  this._ioClusterClient.notifySessionSubscribers({
+  this._ioClusterClient.handleMessage(null, {
     session: this.id,
     event: event,
     data: data,
@@ -482,7 +482,7 @@ var IOClusterClient = module.exports.IOClusterClient = function (options) {
   this._sessionSubscribers = {};
   this._socketSubscribers = {};
   
-  this._privateClientCluster.on('message', this._handleMessage.bind(this));
+  this._privateClientCluster.on('message', this.handleMessage.bind(this));
   
   process.on('exit', function () {
     for (var i in self._addresses) {
@@ -1122,13 +1122,7 @@ IOClusterClient.prototype._notifySubscribers = function (eventSubscribers, messa
   }
 };
 
-IOClusterClient.prototype.notifySessionSubscribers = function (message) {
-  if (this._sessionSubscribers[message.session]) {
-    this._notifySubscribers(this._sessionSubscribers[message.session][message.event], message);
-  }
-};
-
-IOClusterClient.prototype._handleMessage = function (channel, message) {
+IOClusterClient.prototype.handleMessage = function (channel, message) {
   if (message.global) {
     this._notifySubscribers(this._globalSubscribers[message.event], message);
     this._globalEmitter.emit(message.event, message.data);
