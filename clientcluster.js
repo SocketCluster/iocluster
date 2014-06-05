@@ -5,17 +5,23 @@ var EventEmitter = require('events').EventEmitter;
 var ClientCluster = function (clients) {
   var self = this;
   
+  var handleMessage = function (channel, message) {
+    self.emit('message', channel, message);
+  };
+  
+  for (var c in clients) {
+    clients[c].on('message', handleMessage);
+  }
+  
   var i, method;
   var client = clients[0];
   var clientIds = [];
   
   var clientInterface = [
-    'watch',
-    'watchOnce',
-    'watchExclusive',
-    'isWatching',
-    'unwatch',
-    'broadcast',
+    'subscribe',
+    'isSubscribed',
+    'unsubscribe',
+    'publish',
     'set',
     'getExpiry',
     'add',
@@ -45,7 +51,7 @@ var ClientCluster = function (clients) {
     self.emit('error', err);
   });
   
-  for (i in clients) {
+  for (var i in clients) {
     errorDomain.add(clients[i]);
     clients[i].id = i;
     clientIds.push(i);
@@ -56,7 +62,7 @@ var ClientCluster = function (clients) {
     return clientIds;
   };
   
-  for (i in clientInterface) {
+  for (var j in clientInterface) {
     (function (method) {
       self[method] = function () {
         var key = arguments[0];
@@ -74,11 +80,13 @@ var ClientCluster = function (clients) {
             var cb = lastArg;
             
             for (var i in activeClients) {
-              tasks.push(function () {
-                var callback = arguments[arguments.length - 1];
-                result = activeClients[i][method].apply(activeClients[i], args.concat(callback));
-                results.push(result);
-              });
+              (function (activeClient) {
+                tasks.push(function () {
+                  var callback = arguments[arguments.length - 1];
+                  result = activeClient[method].apply(activeClient, args.concat(callback));
+                  results.push(result);
+                });
+              })(activeClients[i]);
             }
             async.parallel(tasks, cb);
           }
@@ -90,7 +98,7 @@ var ClientCluster = function (clients) {
         }
         return results;
       }
-    })(clientInterface[i]);
+    })(clientInterface[j]);
   }
   
   var multiKeyClientInterface = [
@@ -98,10 +106,10 @@ var ClientCluster = function (clients) {
     'unexpire'
   ];
   
-  for (i in multiKeyClientInterface) {
+  for (var m in multiKeyClientInterface) {
     (function (method) {
       self[method] = function () {
-        var j, k, activeClients, mapping, key;
+        var activeClients, mapping, key;
         var keys = arguments[0];
         var tasks = [];
         var results = [];
@@ -110,10 +118,10 @@ var ClientCluster = function (clients) {
         var lastArg = arguments[arguments.length - 1];
         var cb = lastArg;
         
-        for (j in keys) {
+        for (var j in keys) {
           key = keys[j];
           activeClients = self.map(key, method);
-          for (k in activeClients) {
+          for (var k in activeClients) {
             mapping = activeClients[k].id;
             if (expiryMap[mapping] == null) {
               expiryMap[mapping] = [];
@@ -138,11 +146,11 @@ var ClientCluster = function (clients) {
         
         return results;
       };
-    })(multiKeyClientInterface[i]);
+    })(multiKeyClientInterface[m]);
   }
   
-  for (i in clientUtils) {
-    method = clientUtils[i];
+  for (var n in clientUtils) {
+    method = clientUtils[n];
     this[method] = client[method].bind(client);
   }
   
