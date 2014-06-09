@@ -326,7 +326,8 @@ var IOCluster = module.exports.IOCluster = function (options) {
       if (typeof curStore == 'number') {
         curStore = {port: curStore};
       }
-      dataServer = ndata.createServer(curStore.port, options.dataKey, options.expiryAccuracy);
+      dataServer = ndata.createServer(curStore.port, options.dataKey, options.expiryAccuracy, options.appStoreControllerPath);
+      
       self._dataServers[i] = dataServer;
       
       if (firstTime) {
