@@ -20,7 +20,7 @@
   "dependencies": {
     "async": "0.1.22",
     "linkedlist": "1.0.1",
-    "ndata": ">= 2.1.0"
+    "ndata": ">= 2.1.1"
   },
   "main": "index",
   "engines": {
