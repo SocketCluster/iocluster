@@ -397,18 +397,16 @@ var IOClusterClient = module.exports.IOClusterClient = function (options) {
     dataClients.push(dataClient);
   }
   
-  var hasher = function (string) {
-    if (string == null) {
-      string = '';
+  var hasher = function (str) {
+    var ch;
+    var hash = 0;
+    if (str.length == 0) return hash;
+    for (var i = 0; i < str.length; i++) {
+      ch = str.charCodeAt(i);
+      hash = ((hash << 5) - hash) + ch;
+      hash = hash & hash;
     }
-    var result = 0;
-    
-    var len = string.length;
-    for (var i=0; i<len; i++) {
-      result += string.charCodeAt(i);
-    }
-    
-    return result % dataClients.length;
+    return Math.abs(hash) % dataClients.length;
   };
   
   var eventMethods = {
