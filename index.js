@@ -451,22 +451,6 @@ var IOClusterClient = module.exports.IOClusterClient = function (options) {
   this._publicClientCluster.setMapper(this._publicMapper);
   this._errorDomain.add(this._publicClientCluster);
   
-  var readyNum = 0;
-  var dataClientReady = function () {
-    if (++readyNum >= dataClients.length) {
-      self._expiryInterval = setInterval(function () {
-        self._extendExpiries();
-      }, self._expiryReset);
-      
-      self._ready = true;
-      self.emit('ready');
-    }
-  };
-  
-  for (var j in dataClients) {
-    dataClients[j].on('ready', dataClientReady);
-  }
-  
   this._sockets = {};
   this._sessions = {};
   this._addresses = {};
@@ -480,6 +464,26 @@ var IOClusterClient = module.exports.IOClusterClient = function (options) {
   this._globalSubscribers = {};
   this._sessionSubscribers = {};
   this._socketSubscribers = {};
+  
+  var readyNum = 0;
+  var firstTime = true;
+  
+  var dataClientReady = function () {
+    if (++readyNum >= dataClients.length && firstTime) {
+      firstTime = false;
+      self._expiryInterval = setInterval(function () {
+        self._extendExpiries();
+      }, self._expiryReset);
+      
+      self._ready = true;
+      
+      self.emit('ready');
+    }
+  };
+  
+  for (var j in dataClients) {
+    dataClients[j].on('ready', dataClientReady);
+  }
   
   this._privateClientCluster.on('message', this.handleMessage.bind(this));
   
