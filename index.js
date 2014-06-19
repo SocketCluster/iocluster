@@ -15,12 +15,12 @@ var AbstractDataClient = function (dataClient) {
 
 AbstractDataClient.prototype = Object.create(EventEmitter.prototype);
 
-AbstractDataClient.prototype.set = function() {
+AbstractDataClient.prototype.set = function () {
   arguments[0] = this._localizeDataKey(arguments[0]);
   this._dataClient.set.apply(this._dataClient, arguments);
 };
 
-AbstractDataClient.prototype.expire = function() {
+AbstractDataClient.prototype.expire = function () {
   var keys = arguments[0];
   for (var i in keys) {
     keys[i] = this._localizeDataKey(keys[i]);
@@ -30,7 +30,7 @@ AbstractDataClient.prototype.expire = function() {
   this._dataClient.expire.apply(this._dataClient, arguments);
 };
 
-AbstractDataClient.prototype.unexpire = function() {
+AbstractDataClient.prototype.unexpire = function () {
   var keys = arguments[0];
   for (var i in keys) {
     keys[i] = this._localizeDataKey(keys[i]);
@@ -40,72 +40,72 @@ AbstractDataClient.prototype.unexpire = function() {
   this._dataClient.unexpire.apply(this._dataClient, arguments);
 };
 
-AbstractDataClient.prototype.add = function() {
+AbstractDataClient.prototype.add = function () {
   arguments[0] = this._localizeDataKey(arguments[0]);
   this._dataClient.add.apply(this._dataClient, arguments);
 };
 
-AbstractDataClient.prototype.get = function() {
+AbstractDataClient.prototype.get = function () {
   arguments[0] = this._localizeDataKey(arguments[0]);
   this._dataClient.get.apply(this._dataClient, arguments);
 };
 
-AbstractDataClient.prototype.getRange = function() {
+AbstractDataClient.prototype.getRange = function () {
   arguments[0] = this._localizeDataKey(arguments[0]);
   this._dataClient.getRange.apply(this._dataClient, arguments);
 };
 
-AbstractDataClient.prototype.getAll = function(callback) {
+AbstractDataClient.prototype.getAll = function (callback) {
   var clientRootKey = this._localizeDataKey();
   this._dataClient.get.call(this._dataClient, clientRootKey, callback);
 };
 
-AbstractDataClient.prototype.count = function() {
+AbstractDataClient.prototype.count = function () {
   arguments[0] = this._localizeDataKey(arguments[0]);
   this._dataClient.count.apply(this._dataClient, arguments);
 };
 
-AbstractDataClient.prototype.remove = function() {
+AbstractDataClient.prototype.remove = function () {
   arguments[0] = this._localizeDataKey(arguments[0]);
   this._dataClient.remove.apply(this._dataClient, arguments);
 };
 
-AbstractDataClient.prototype.removeRange = function() {
+AbstractDataClient.prototype.removeRange = function () {
   arguments[0] = this._localizeDataKey(arguments[0]);
   this._dataClient.removeRange.apply(this._dataClient, arguments);
 };
 
-AbstractDataClient.prototype.removeAll = function(callback) {
+AbstractDataClient.prototype.removeAll = function (callback) {
   var clientRootKey = this._localizeDataKey();
   this._dataClient.set.call(this._dataClient, clientRootKey, {}, callback);
 };
 
-AbstractDataClient.prototype.pop = function() {
+AbstractDataClient.prototype.pop = function () {
   arguments[0] = this._localizeDataKey(arguments[0]);
   this._dataClient.pop.apply(this._dataClient, arguments);
 };
 
-AbstractDataClient.prototype.hasKey = function() {
+AbstractDataClient.prototype.hasKey = function () {
   arguments[0] = this._localizeDataKey(arguments[0]);
   this._dataClient.hasKey.apply(this._dataClient, arguments);
 };
 
-AbstractDataClient.prototype.stringify = function(value) {
+AbstractDataClient.prototype.stringify = function (value) {
   return this._dataClient.stringify(value);
 };
 
-AbstractDataClient.prototype.extractKeys = function(object) {
+AbstractDataClient.prototype.extractKeys = function (object) {
   return this._dataClient.extractKeys(object);
 };
 
-AbstractDataClient.prototype.extractValues = function(object) {
+AbstractDataClient.prototype.extractValues = function (object) {
   return this._dataClient.extractValues(object);
 };
 
 /*
   query(query,[ data, callback])
 */
-AbstractDataClient.prototype.query = function() {
+AbstractDataClient.prototype.query = function () {
   var options = {
     baseKey: this._localizeDataKey()
   };
@@ -199,15 +199,15 @@ Session.prototype._localizeDataKey = function (key) {
   return this._keyManager.getSessionDataKey(this.id, key);
 };
 
-Session.prototype.setAuth = function(data, callback) {
+Session.prototype.setAuth = function (data, callback) {
   this.set('__auth', data, callback);
 };
 
-Session.prototype.getAuth = function(callback) {
+Session.prototype.getAuth = function (callback) {
   this.get('__auth', callback);
 };
 
-Session.prototype.clearAuth = function(callback) {
+Session.prototype.clearAuth = function (callback) {
   this.remove('__auth', callback);
 };
 
@@ -521,7 +521,7 @@ IOClusterClient.prototype._processExpiryList = function (expiryList) {
     keys.push(key);
   }
   if (keys.length > 0) {
-    this._privateClientCluster.expire(keys, this._dataExpiry, function() {
+    this._privateClientCluster.expire(keys, this._dataExpiry, function () {
       self._processExpiryList(expiryList);
     });
   }
@@ -580,14 +580,14 @@ IOClusterClient.prototype._handshake = function (socket, callback) {
     };
     
     if (this._addressSocketLimit > 0) {
-      this.getAddressSockets(remoteAddr, function(err, sockets) {
+      this.getAddressSockets(remoteAddr, function (err, sockets) {
         if (err) {
           callback && callback(err);
         } else {
           if (sockets.length < self._addressSocketLimit) {
             acceptHandshake();
           } else {
-            callback && callback("Reached connection limit for the address " + remoteAddr, true);
+            callback && callback("Reached connection limit for the address " + remoteAddr);
           }
         }
       });
@@ -610,9 +610,9 @@ IOClusterClient.prototype.bind = function (socket, callback) {
   socket.eventSubscriptions = {};
   socket.eventSubscriptionCount = 0;
   
-  this._handshake(socket, function (err, notice) {
+  this._handshake(socket, function (err) {
     if (err) {
-      callback(err, socket, notice);
+      callback(err, socket, true);
     } else {
       self._sockets[socket.id] = socket;
       if (self._sessions[socket.ssid] == null) {
@@ -643,15 +643,10 @@ IOClusterClient.prototype.bind = function (socket, callback) {
       };
       
       socket.on('subscribe', function (event, res) {
-        self._subscribeClientSocket(socket, event, function (err, isNotice) {
+        self._subscribeClientSocket(socket, event, function (err) {
           if (err) {
             res.error(err);
-            
-            if (isNotice) {
-              self.emit('notice', err);
-            } else {
-              self.emit('error', err);
-            }
+            self.emit('notice', err);
           } else {
             res.end();
           }
@@ -696,7 +691,7 @@ IOClusterClient.prototype.bind = function (socket, callback) {
           self._privateClientCluster.expire([socket.addressDataKey], self._dataExpiry, cb);
         }
       ],
-      function(err) {
+      function (err) {
         callback(err, socket);
       });
     }
@@ -742,7 +737,7 @@ IOClusterClient.prototype.unbind = function (socket, callback) {
       cb();
     }
   ],
-  function(err) {
+  function (err) {
     callback(err, socket);
   });
 };
@@ -1035,7 +1030,7 @@ IOClusterClient.prototype._subscribeSingleClientSocket = function (socket, event
   
   if (this._socketEventLimit && socket.eventSubscriptionCount >= this._socketEventLimit) {
     callback('Socket ' + socket.id + ' tried to exceed the event subscription limit of ' +
-      this._socketEventLimit, true);
+      this._socketEventLimit);
   } else {
     if (socket.eventSubscriptionCount == null) {
       socket.eventSubscriptionCount = 0;
