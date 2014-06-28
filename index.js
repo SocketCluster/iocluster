@@ -528,7 +528,7 @@ IOClusterClient.prototype._processExpiryList = function (expiryList) {
 };
 
 IOClusterClient.prototype._extendExpiries = function () {
-  var sessionExpiryList = new LinkedList();
+  var dataExpiryList = new LinkedList();
   var addressExpiryList = new LinkedList();
   
   var sockets = this._sockets;
@@ -537,16 +537,16 @@ IOClusterClient.prototype._extendExpiries = function () {
   
   var i;
   for (i in sockets) {
-    sessionExpiryList.push(sockets[i].dataKey);
+    dataExpiryList.push(sockets[i].dataKey);
   }
   for (i in sessions) {
-    sessionExpiryList.push(sessions[i].dataKey);
+    dataExpiryList.push(sessions[i].dataKey);
   }
   for (i in addresses) {
     addressExpiryList.push(addresses[i].dataKey);
   }
   
-  this._processExpiryList(sessionExpiryList);
+  this._processExpiryList(dataExpiryList);
   this._processExpiryList(addressExpiryList);
 };
 
@@ -816,17 +816,6 @@ IOClusterClient.prototype._dropUnusedSubscriptions = function (socketId, session
     }
   }
   
-  if (socketEmitter && socketEmitter.totalEventListenerCount < 1) {
-    delete this._socketEmitters[socketId];
-    if (isEmpty(self._socketSubscribers[socketId])) {
-      delete self._socketSubscribers[socketId];
-      var socketEventKey = this._keyManager.getSocketEventKey(socketId);
-      tasks.push(function (cb) {
-        self._privateClientCluster.unsubscribe(socketEventKey, cb);
-      });
-    }
-  }
-  
   if (sessionEmitter && sessionEmitter.totalEventListenerCount < 1) {
     delete this._sessionEmitters[sessionId];
     if (isEmpty(self._sessionSubscribers[sessionId])) {
@@ -834,6 +823,17 @@ IOClusterClient.prototype._dropUnusedSubscriptions = function (socketId, session
       var sessionEventKey = this._keyManager.getSessionEventKey(sessionId);
       tasks.push(function (cb) {
         self._privateClientCluster.unsubscribe(sessionEventKey, cb);
+      });
+    }
+  }
+  
+  if (socketEmitter && socketEmitter.totalEventListenerCount < 1) {
+    delete this._socketEmitters[socketId];
+    if (isEmpty(self._socketSubscribers[socketId])) {
+      delete self._socketSubscribers[socketId];
+      var socketEventKey = this._keyManager.getSocketEventKey(socketId);
+      tasks.push(function (cb) {
+        self._privateClientCluster.unsubscribe(socketEventKey, cb);
       });
     }
   }
