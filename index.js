@@ -455,8 +455,6 @@ var IOClusterClient = module.exports.IOClusterClient = function (options) {
   this._sessions = {};
   this._addresses = {};
   
-  this._subscribers = {};
-  
   this._globalEmitter = new EventEmitter();
   this._sessionEmitters = {};
   this._socketEmitters = {};
