@@ -326,7 +326,13 @@ var IOCluster = module.exports.IOCluster = function (options) {
       if (typeof curStore == 'number') {
         curStore = {port: curStore};
       }
-      dataServer = ndata.createServer(curStore.port, options.dataKey, options.expiryAccuracy, options.appStoreControllerPath);
+      dataServer = ndata.createServer({
+        port: curStore.port,
+        secretKet: options.dataKey,
+        expiryAccuracy: options.expiryAccuracy,
+        downgradeToUser: options.downgradeToUser,
+        storeControllerPath: options.appStoreControllerPath
+      });
       
       self._dataServers[i] = dataServer;
       
@@ -393,7 +399,10 @@ var IOClusterClient = module.exports.IOClusterClient = function (options) {
     if (typeof curStore == 'number') {
       curStore = {port: curStore};
     }
-    dataClient = ndata.createClient(curStore.port, options.dataKey);
+    dataClient = ndata.createClient({
+      port: curStore.port,
+      secretKey: options.dataKey
+    });
     dataClients.push(dataClient);
   }
   
@@ -784,6 +793,7 @@ IOClusterClient.prototype.socket = function (socketId, sessionId) {
 };
 
 IOClusterClient.prototype._incrementListenerCount = function () {
+
   this.totalEventListenerCount++;
 };
 
