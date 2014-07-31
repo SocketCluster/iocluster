@@ -322,12 +322,10 @@ var IOCluster = module.exports.IOCluster = function (options) {
   
   for (var i=0; i<len; i++) {
     var launchServer = function (i) {
-      var curStore = options.stores[i];
-      if (typeof curStore == 'number') {
-        curStore = {port: curStore};
-      }
+      var socketPath = options.stores[i];
+      
       dataServer = ndata.createServer({
-        port: curStore.port,
+        socketPath: socketPath,
         secretKet: options.dataKey,
         expiryAccuracy: options.expiryAccuracy,
         downgradeToUser: options.downgradeToUser,
@@ -350,7 +348,7 @@ var IOCluster = module.exports.IOCluster = function (options) {
       });
       
       dataServer.on('exit', function () {
-        self.emit('error', new Error('nData server at port ' + curStore.port + ' exited'));
+        self.emit('error', new Error('nData server at socket path ' + socketPath + ' exited'));
         launchServer(i);
       });
     };
@@ -391,16 +389,13 @@ var IOClusterClient = module.exports.IOClusterClient = function (options) {
   this._keyManager = new KeyManager();
   this._ready = false;
   
-  var dataClient, curStore;
+  var dataClient;
   var dataClients = [];
   
   for (var i in options.stores) {
-    curStore = options.stores[i];
-    if (typeof curStore == 'number') {
-      curStore = {port: curStore};
-    }
+    var socketPath = options.stores[i];
     dataClient = ndata.createClient({
-      port: curStore.port,
+      socketPath: socketPath,
       secretKey: options.dataKey
     });
     dataClients.push(dataClient);
