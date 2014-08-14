@@ -117,13 +117,13 @@ AbstractDataClient.prototype.query = function () {
 };
 
 var Global = function (socketId, privateClientCluster, publicClientCluster, ioClusterClient) {
+  AbstractDataClient.call(this, publicClientCluster);
+  
   this.socketId = socketId;
   this._privateClientCluster = privateClientCluster;
   this._publicClientCluster = publicClientCluster;
   this._ioClusterClient = ioClusterClient;
   this._keyManager = new KeyManager();
-  
-  AbstractDataClient.call(this, this._publicClientCluster);  
 };
 
 Global.prototype = Object.create(AbstractDataClient.prototype);
@@ -186,9 +186,10 @@ Global.prototype.destroy = function (callback) {
 
 
 var Session = function (sessionId, socketId, dataClient, ioClusterClient) {
+  AbstractDataClient.call(this, dataClient);
+  
   this.id = sessionId;
   this.socketId = socketId;
-  this._dataClient = dataClient;
   this._ioClusterClient = ioClusterClient;
   this._keyManager = new KeyManager();
 };
