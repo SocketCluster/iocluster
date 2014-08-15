@@ -116,6 +116,7 @@ AbstractDataClient.prototype.query = function () {
   this._dataClient.run(arguments[0], options, arguments[2]);
 };
 
+
 var Global = function (socketId, privateClientCluster, publicClientCluster, ioClusterClient) {
   AbstractDataClient.call(this, publicClientCluster);
   
@@ -136,36 +137,20 @@ Global.prototype.broadcast = function (event, data, callback) {
   this._ioClusterClient.publishGlobalEvent(event, data, callback);
 };
 
-Global.prototype._emit = function (sessionId, event, data, excludeCurrentSocket, callback) {
-  var excludeSocket = null;
-  if (excludeCurrentSocket) {
-    excludeSocket = this.socketId;
-  }
-  this._ioClusterClient.publishSessionEvent(sessionId, event, data, excludeSocket, callback);
-};
-
-Global.prototype.emit = function (sessionId, event, data, callback) {
-  this._emit(sessionId, event, data, false, callback);
-};
-
-Global.prototype.transmit = function (sessionId, event, data, callback) {
-  this._emit(sessionId, event, data, true, callback);
-};
-
 Global.prototype.on = function (event, handler, callback) {
   this._ioClusterClient.onGlobalEvent(event, handler, callback);
 };
 
 Global.prototype.removeListener = function (event, handler, callback) {
-  this._ioClusterClient.removeGlobalServerListener(event, handler, callback);
+  this._ioClusterClient.removeGlobalListener(event, handler, callback);
 };
 
 Global.prototype.removeAllListeners = function (event, callback) {
-  this._ioClusterClient.removeAllGlobalServerListeners(event, callback);
+  this._ioClusterClient.removeAllGlobalListeners(event, callback);
 };
 
 Global.prototype.listeners = function (event) {
-  return this._ioClusterClient.globalServerListeners(event);
+  return this._ioClusterClient.getGlobalListeners(event);
 };
 
 Global.prototype.setMapper = function (mapper) {
@@ -212,102 +197,31 @@ Session.prototype.clearAuth = function (callback) {
   this.remove('__auth', callback);
 };
 
-Session.prototype.emit = function (event, data, callback) {
-  this._ioClusterClient.publishSessionEvent(this.id, event, data, null, callback);
-};
-
-Session.prototype.transmit = function (event, data, callback) {
-  this._ioClusterClient.publishSessionEvent(this.id, event, data, this.socketId, callback);
-};
-
-Session.prototype.countSockets = function (callback) {
-  this._dataClient.count(this._keyManager.getSessionDataKey(this.id, ['__meta', 'sockets']), callback);
-};
-
-Session.prototype.on = function (event, handler, callback) {
-  this._ioClusterClient.onSessionEvent(this.id, event, handler, callback);
-};
-
-Session.prototype.removeListener = function (event, handler, callback) {
-  this._ioClusterClient.removeSessionServerListener(this.id, event, handler, callback);
-};
-
-Session.prototype.removeAllListeners = function (event, callback) {
-  this._ioClusterClient.removeAllSessionServerListeners(this.id, event, callback);
-};
-
-Session.prototype.listeners = function (event) {
-  return this._ioClusterClient.sessionServerListeners(this.id, event);
-};
-
-Session.prototype.destroy = function (callback) {
-  this.removeAllListeners(null, callback);
-};
-
-/*
-  LocalSession is a session which resides in the current process. Its interface is identical to Session
-  but it has some performance optimizations.
-*/
-var LocalSession = function (sessionId, socketId, dataClient, ioClusterClient) {
-  Session.call(this, sessionId, socketId, dataClient, ioClusterClient);
-  this._ioClusterClient = ioClusterClient;
-};
-
-LocalSession.prototype = Object.create(Session.prototype);
-
-LocalSession.prototype.emit = function (event, data, callback) {
-   this._ioClusterClient.handleMessage(null, {
-    session: this.id,
+Session.prototype.emit = function (event, data) {
+  var sockets = this._ioClusterClient.getSessionSockets(this.id);
+  this._ioClusterClient.notifySockets(sockets, {
     event: event,
     data: data
-   });
+  });
+  EventEmitter.prototype.emit.call(this, event, data);
 };
 
-LocalSession.prototype.transmit = function (event, data, callback) {
-  this._ioClusterClient.handleMessage(null, {
-    session: this.id,
+Session.prototype.transmit = function (event, data) {
+  var sockets = this._ioClusterClient.getSessionSockets(this.id);
+  this._ioClusterClient.notifySockets(sockets, {
     event: event,
     data: data,
     exclude: this.socketId
   });
+  EventEmitter.prototype.emit.call(this, event, data);
 };
 
-
-var Socket = function (socketId, dataClient, ioClusterClient) {
-  this.id = socketId;
-  this._dataClient = dataClient;
-  this._ioClusterClient = ioClusterClient;
-  this._keyManager = new KeyManager();
+Session.prototype.getSockets = function () {
+  return this._ioClusterClient.getSessionSockets(this.id);
 };
 
-Socket.prototype = Object.create(AbstractDataClient.prototype);
-
-Socket.prototype._localizeDataKey = function (key) {
-  return this._keyManager.getSocketDataKey(this.id, key);
-};
-
-Socket.prototype.emit = function (event, data, callback) {
-  this._ioClusterClient.publishSocketEvent(this.id, event, data, callback);
-};
-
-Socket.prototype.on = function (event, handler, callback) {
-  this._ioClusterClient.onSocketEvent(this.id, event, handler, callback);
-};
-
-Socket.prototype.removeListener = function (event, handler, callback) {
-  this._ioClusterClient.removeSocketServerListener(this.id, event, handler, callback);
-};
-
-Socket.prototype.removeAllListeners = function (event, callback) {
-  this._ioClusterClient.removeAllSocketServerListeners(this.id, event, callback);
-};
-
-Socket.prototype.listeners = function (event) {
-  return this._ioClusterClient.socketServerListeners(this.id, event);
-};
-
-Socket.prototype.destroy = function (callback) {
-  this.removeAllListeners(null, callback);
+Session.prototype.destroy = function () {
+  this.removeAllListeners(null);
 };
 
 
@@ -327,7 +241,7 @@ var IOCluster = module.exports.IOCluster = function (options) {
       
       dataServer = ndata.createServer({
         socketPath: socketPath,
-        secretKet: options.dataKey,
+        secretKey: options.dataKey,
         expiryAccuracy: options.expiryAccuracy,
         downgradeToUser: options.downgradeToUser,
         storeControllerPath: options.appStoreControllerPath
@@ -461,12 +375,7 @@ var IOClusterClient = module.exports.IOClusterClient = function (options) {
   this._addresses = {};
   
   this._globalEmitter = new EventEmitter();
-  this._sessionEmitters = {};
-  this._socketEmitters = {};
-  
   this._globalSubscribers = {};
-  this._sessionSubscribers = {};
-  this._socketSubscribers = {};
   
   var readyNum = 0;
   var firstTime = true;
@@ -488,7 +397,7 @@ var IOClusterClient = module.exports.IOClusterClient = function (options) {
     dataClients[j].on('ready', dataClientReady);
   }
   
-  this._privateClientCluster.on('message', this.handleMessage.bind(this));
+  this._privateClientCluster.on('message', this._handleGlobalMessage.bind(this));
   
   process.on('exit', function () {
     for (var i in self._addresses) {
@@ -534,14 +443,10 @@ IOClusterClient.prototype._extendExpiries = function () {
   var dataExpiryList = new LinkedList();
   var addressExpiryList = new LinkedList();
   
-  var sockets = this._sockets;
   var sessions = this._sessions;
   var addresses = this._addresses;
   
   var i;
-  for (i in sockets) {
-    dataExpiryList.push(sockets[i].dataKey);
-  }
   for (i in sessions) {
     dataExpiryList.push(sessions[i].dataKey);
   }
@@ -605,9 +510,6 @@ IOClusterClient.prototype.bind = function (socket, callback) {
   
   callback = this._errorDomain.bind(callback);
   
-  socket.eventKey = this._keyManager.getSocketEventKey(socket.id);
-  socket.dataKey = this._keyManager.getSocketDataKey(socket.id);
-  socket.sessionEventKey = this._keyManager.getSessionEventKey(socket.ssid);
   socket.sessionDataKey = this._keyManager.getSessionDataKey(socket.ssid);
   socket.addressDataKey = this._keyManager.getGlobalDataKey(['__meta', 'addresses', socket.address]);
   socket.eventSubscriptions = {};
@@ -675,19 +577,7 @@ IOClusterClient.prototype.bind = function (socket, callback) {
       async.parallel([
         function () {
           var cb = arguments[arguments.length - 1];
-          self._privateClientCluster.subscribe(socket.eventKey, cb);
-        },
-        function () {
-          var cb = arguments[arguments.length - 1];
-          self._privateClientCluster.subscribe(socket.sessionEventKey, cb);
-        },
-        function () {
-          var cb = arguments[arguments.length - 1];
           self._privateClientCluster.query(sessionStartQuery, cb);
-        },
-        function () {
-          var cb = arguments[arguments.length - 1];
-          self._privateClientCluster.expire([socket.dataKey], self._dataExpiry, cb);
         },
         function () {
           var cb = arguments[arguments.length - 1];
@@ -707,10 +597,6 @@ IOClusterClient.prototype.unbind = function (socket, callback) {
   callback = this._errorDomain.bind(callback);
   
   async.waterfall([
-    function () {
-      var cb = arguments[arguments.length - 1];
-      self._privateClientCluster.unsubscribe(socket.eventKey, cb);
-    },
     function () {
       var cb = arguments[arguments.length - 1];
       socket.removeAllListeners('subscribe');
@@ -734,8 +620,7 @@ IOClusterClient.prototype.unbind = function (socket, callback) {
       
       if (self._sessions[socket.ssid] && isEmpty(self._sessions[socket.ssid].sockets)) {
         delete self._sessions[socket.ssid];
-        self.emit('sessiondestroy', socket.ssid);
-        self._privateClientCluster.unsubscribe(socket.sessionEventKey, null, cb);
+        self.emit('sessionend', socket.ssid);
       }
       cb();
     }
@@ -745,7 +630,7 @@ IOClusterClient.prototype.unbind = function (socket, callback) {
   });
 };
 
-IOClusterClient.prototype.getLocalSessionSockets = function (ssid) {
+IOClusterClient.prototype.getSessionSockets = function (ssid) {
   var session = this._sessions[ssid];
   if (session == null) {
     return {};
@@ -772,39 +657,12 @@ IOClusterClient.prototype.global = function (socketId) {
   return new Global(socketId, this._privateClientCluster, this._publicClientCluster, this);
 };
 
-IOClusterClient.prototype.session = function (sessionId, socketId, isLocal) {
-  if (isLocal) {
-    return new LocalSession(sessionId, socketId, this._privateClientCluster.map(sessionId)[0], this);
-  } else {
-    return new Session(sessionId, socketId, this._privateClientCluster.map(sessionId)[0], this);
-  }
-};
-
-IOClusterClient.prototype.socket = function (socketId, sessionId) {
-  if (!sessionId) {
-    sessionId = this._sockets[socketId].ssid;
-  }
-  
-  return new Socket(socketId, this._privateClientCluster.map(sessionId)[0], this);
-};
-
-IOClusterClient.prototype._incrementListenerCount = function () {
-
-  this.totalEventListenerCount++;
-};
-
-IOClusterClient.prototype._decrementListenerCount = function () {
-  this.totalEventListenerCount--;
-  if (this.totalEventListenerCount < 0) {
-    this.totalEventListenerCount = 0;
-  }
+IOClusterClient.prototype.session = function (sessionId, socketId) {
+  return new Session(sessionId, socketId, this._privateClientCluster.map(sessionId)[0], this);
 };
 
 IOClusterClient.prototype._dropUnusedSubscriptions = function (socketId, sessionId, globalEvent, callback) {
   var self = this;
-  
-  var socketEmitter = socketId ? this._socketEmitters[socketId] : null;
-  var sessionEmitter = sessionId ? this._sessionEmitters[sessionId] : null;
   
   var tasks = [];
   
@@ -820,35 +678,13 @@ IOClusterClient.prototype._dropUnusedSubscriptions = function (socketId, session
     }
   }
   
-  if (sessionEmitter && sessionEmitter.totalEventListenerCount < 1) {
-    delete this._sessionEmitters[sessionId];
-    if (isEmpty(self._sessionSubscribers[sessionId])) {
-      delete self._sessionSubscribers[sessionId];
-      var sessionEventKey = this._keyManager.getSessionEventKey(sessionId);
-      tasks.push(function (cb) {
-        self._privateClientCluster.unsubscribe(sessionEventKey, cb);
-      });
-    }
-  }
-  
-  if (socketEmitter && socketEmitter.totalEventListenerCount < 1) {
-    delete this._socketEmitters[socketId];
-    if (isEmpty(self._socketSubscribers[socketId])) {
-      delete self._socketSubscribers[socketId];
-      var socketEventKey = this._keyManager.getSocketEventKey(socketId);
-      tasks.push(function (cb) {
-        self._privateClientCluster.unsubscribe(socketEventKey, cb);
-      });
-    }
-  }
-  
   async.parallel(tasks, function (err) {
     callback && callback(err);
   });
 };
 
 IOClusterClient.prototype.publishGlobalEvent = function (event, data, callback) {
-  var eventData = {global: 1, event: event, data: data};
+  var eventData = {event: event, data: data};
   this._privateClientCluster.publish(this._keyManager.getGlobalEventKey(event), eventData, callback);
 };
 
@@ -858,12 +694,12 @@ IOClusterClient.prototype.onGlobalEvent = function (event, handler, callback) {
   this._privateClientCluster.subscribe(eventKey, callback);
 };
 
-IOClusterClient.prototype.removeGlobalServerListener = function (event, handler, callback) {
+IOClusterClient.prototype.removeGlobalListener = function (event, handler, callback) {
   this._globalEmitter.removeListener(event, handler);
   this._dropUnusedSubscriptions(null, null, event, callback);
 };
 
-IOClusterClient.prototype.removeAllGlobalServerListeners = function (event, callback) {
+IOClusterClient.prototype.removeAllGlobalListeners = function (event, callback) {
   var self = this;
   
   if (event instanceof Function) {
@@ -889,98 +725,8 @@ IOClusterClient.prototype.removeAllGlobalServerListeners = function (event, call
   }
 };
 
-IOClusterClient.prototype.globalServerListeners = function (event) {
+IOClusterClient.prototype.getGlobalListeners = function (event) {
   return this._globalEmitter.listeners(event);
-};
-
-IOClusterClient.prototype._trackListenerCount = function (eventEmitter) {
-  if (eventEmitter.totalEventListenerCount == null) {
-    eventEmitter.totalEventListenerCount = 0;
-  }
-  eventEmitter.on('newListener', this._incrementListenerCount.bind(eventEmitter));
-  eventEmitter.on('removeListener', this._decrementListenerCount.bind(eventEmitter));
-};
-
-IOClusterClient.prototype.publishSessionEvent = function (sessionId, event, data, excludeSocket, callback) {
-  var eventData = {session: sessionId, event: event, data: data};
-  if (excludeSocket != null) {
-    eventData.exclude = excludeSocket;
-  }
-  this._privateClientCluster.publish(this._keyManager.getSessionEventKey(sessionId), eventData, callback);
-};
-
-IOClusterClient.prototype.onSessionEvent = function (sessionId, event, handler, callback) {
-  if (this._sessionEmitters[sessionId] == null) {
-    this._sessionEmitters[sessionId] = new EventEmitter();
-    this._trackListenerCount(this._sessionEmitters[sessionId]);
-  }
-  this._sessionEmitters[sessionId].on(event, handler);
-  callback && callback();
-};
-
-IOClusterClient.prototype.removeSessionServerListener = function (sessionId, event, handler, callback) {
-  var sessionEmitter = this._sessionEmitters[sessionId];
-  sessionEmitter.removeListener(event, handler);
-  this._dropUnusedSubscriptions(null, sessionId, null, callback);
-};
-
-IOClusterClient.prototype.removeAllSessionServerListeners = function (sessionId, event, callback) {
-  if (event instanceof Function) {
-    callback = event;
-    event = null;
-  }
-  var sessionEmitter = this._sessionEmitters[sessionId];
-  if (event) {
-    sessionEmitter.removeAllListeners(event);
-  } else {
-    sessionEmitter.removeAllListeners();
-  }
-  this._dropUnusedSubscriptions(null, sessionId, null, callback);
-};
-
-IOClusterClient.prototype.sessionServerListeners = function (sessionId, event) {
-  return this._sessionEmitters[sessionId].listeners(event);
-};
-
-IOClusterClient.prototype.publishSocketEvent = function (socketId, event, data, excludeSocket, callback) {
-  var eventData = {socket: socketId, event: event, data: data};
-  if (excludeSocket != null) {
-    eventData.exclude = excludeSocket;
-  }
-  this._privateClientCluster.publish(this._keyManager.getSocketEventKey(socketId), eventData, callback);
-};
-
-IOClusterClient.prototype.onSocketEvent = function (socketId, event, handler, callback) {
-  if (this._socketEmitters[socketId] == null) {
-    this._socketEmitters[socketId] = new EventEmitter();
-    this._trackListenerCount(this._sessionEmitters[sessionId]);
-  }
-  this._socketEmitters[socketId].on(event, handler);
-  callback && callback();
-};
-
-IOClusterClient.prototype.removeSocketServerListener = function (socketId, event, handler, callback) {
-  var socketEmitter = this._socketEmitters[socketId];
-  socketEmitter.removeListener(event, handler);
-  this._dropUnusedSubscriptions(socketId, null, null, callback);
-};
-
-IOClusterClient.prototype.removeAllSocketServerListeners = function (socketId, event, callback) {
-  if (event instanceof Function) {
-    callback = event;
-    event = null;
-  }
-  var socketEmitter = this._socketEmitters[socketId];
-  if (event) {
-    socketEmitter.removeAllListeners(event);
-  } else {
-    socketEmitter.removeAllListeners();
-  }
-  this._dropUnusedSubscriptions(socketId, null, null, callback);
-};
-
-IOClusterClient.prototype.socketServerListeners = function (socketId, event) {
-  return this._socketEmitters[socketId].listeners(event);
 };
 
 IOClusterClient.prototype._subscribeClientSocket = function (socket, events, callback) {
@@ -1058,22 +804,6 @@ IOClusterClient.prototype._subscribeSingleClientSocket = function (socket, event
           self._globalSubscribers[event] = {};
         }
         self._globalSubscribers[event][socket.id] = socket;
-        
-        if (!self._sessionSubscribers[socket.ssid]) {
-          self._sessionSubscribers[socket.ssid] = {};
-        }
-        if (!self._sessionSubscribers[socket.ssid][event]) {
-          self._sessionSubscribers[socket.ssid][event] = {};
-        }
-        self._sessionSubscribers[socket.ssid][event][socket.id] = socket;
-        
-        if (!self._socketSubscribers[socket.id]) {
-          self._socketSubscribers[socket.id] = {};
-        }
-        if (!self._socketSubscribers[socket.id][event]) {
-          self._socketSubscribers[socket.id][event] = {};
-        }
-        self._socketSubscribers[socket.id][event][socket.id] = socket;
       }
       callback && callback(err);
     };
@@ -1090,24 +820,6 @@ IOClusterClient.prototype._unsubscribeSingleClientSocket = function (socket, eve
       delete this._globalSubscribers[event];
     }
   }
-  if (this._sessionSubscribers[socket.ssid] && this._sessionSubscribers[socket.ssid][event]) {
-    delete this._sessionSubscribers[socket.ssid][event][socket.id];
-    if (isEmpty(this._sessionSubscribers[socket.ssid][event])) {
-      delete this._sessionSubscribers[socket.ssid][event];
-      if (isEmpty(this._sessionSubscribers[socket.ssid])) {
-        delete this._sessionSubscribers[socket.ssid];
-      }
-    }
-  }
-  if (this._socketSubscribers[socket.id] && this._socketSubscribers[socket.id][event]) {
-    delete this._socketSubscribers[socket.id][event][socket.id];
-    if (isEmpty(this._socketSubscribers[socket.id][event])) {
-      delete this._socketSubscribers[socket.id][event];
-      if (isEmpty(this._socketSubscribers[socket.id])) {
-        delete this._socketSubscribers[socket.id];
-      }
-    }
-  }
   delete socket.eventSubscriptions[event];
   if (socket.eventSubscriptionCount != null) {
     socket.eventSubscriptionCount--;
@@ -1115,32 +827,15 @@ IOClusterClient.prototype._unsubscribeSingleClientSocket = function (socket, eve
   this._dropUnusedSubscriptions(socket.id, socket.ssid, event, callback);
 };
 
-IOClusterClient.prototype._notifySubscribers = function (eventSubscribers, message) {
-  for (var i in eventSubscribers) {
-    var socket = eventSubscribers[i];
-    if (message.exclude == null || socket.id != message.exclude) {
-      socket.emit(message.event, message.data);
+IOClusterClient.prototype.notifySockets = function (sockets, message) {
+  for (var i in sockets) {
+    if (message.exclude == null || sockets[i].id != message.exclude) {
+      sockets[i].emit(message.event, message.data);
     }
   }
 };
 
-IOClusterClient.prototype.handleMessage = function (channel, message) {
-  if (message.global) {
-    this._notifySubscribers(this._globalSubscribers[message.event], message);
-    this._globalEmitter.emit(message.event, message.data);
-  } else if (message.session) {
-    if (this._sessionSubscribers[message.session]) {
-      this._notifySubscribers(this._sessionSubscribers[message.session][message.event], message);
-    }
-    if (this._sessionEmitters[message.session]) {
-      this._sessionEmitters[message.session].emit(message.event, message.data);
-    }
-  } else if (message.socket) {
-    if (this._socketSubscribers[message.socket]) {
-      this._notifySubscribers(this._socketSubscribers[message.socket][message.event], message);
-    }
-    if (this._socketEmitters[message.socket]) {
-      this._socketEmitters[message.socket].emit(message.event, message.data);
-    }
-  }
+IOClusterClient.prototype._handleGlobalMessage = function (channel, message) {
+  this.notifySockets(this._globalSubscribers[message.event], message);
+  this._globalEmitter.emit(message.event, message.data);
 };
