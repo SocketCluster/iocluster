@@ -221,7 +221,7 @@ Session.prototype.getSockets = function () {
 };
 
 Session.prototype.destroy = function () {
-  this.removeAllListeners(null);
+  this.removeAllListeners();
 };
 
 
@@ -661,26 +661,18 @@ IOClusterClient.prototype.session = function (sessionId, socketId) {
   return new Session(sessionId, socketId, this._privateClientCluster.map(sessionId)[0], this);
 };
 
-IOClusterClient.prototype._dropUnusedSubscriptions = function (socketId, sessionId, globalEvent, callback) {
+IOClusterClient.prototype._dropUnusedSubscriptions = function (globalEvent, callback) {
   var self = this;
   
-  var tasks = [];
-  
-  if (globalEvent) {
-    if (isEmpty(this._globalSubscribers[globalEvent])) {
-      delete this._globalSubscribers[globalEvent];
-      if (EventEmitter.listenerCount(this._globalEmitter, globalEvent) < 1) {
-        var globalEventKey = this._keyManager.getGlobalEventKey(globalEvent);
-        tasks.push(function (cb) {
-          self._privateClientCluster.unsubscribe(globalEventKey, cb);
-        });
-      }
+  if (isEmpty(this._globalSubscribers[globalEvent])) {
+    delete this._globalSubscribers[globalEvent];
+    if (EventEmitter.listenerCount(this._globalEmitter, globalEvent) < 1) {
+      var globalEventKey = this._keyManager.getGlobalEventKey(globalEvent);
+      self._privateClientCluster.unsubscribe(globalEventKey, callback);
+      return;
     }
   }
-  
-  async.parallel(tasks, function (err) {
-    callback && callback(err);
-  });
+  callback && callback();
 };
 
 IOClusterClient.prototype.publishGlobalEvent = function (event, data, callback) {
@@ -696,7 +688,7 @@ IOClusterClient.prototype.onGlobalEvent = function (event, handler, callback) {
 
 IOClusterClient.prototype.removeGlobalListener = function (event, handler, callback) {
   this._globalEmitter.removeListener(event, handler);
-  this._dropUnusedSubscriptions(null, null, event, callback);
+  this._dropUnusedSubscriptions(event, callback);
 };
 
 IOClusterClient.prototype.removeAllGlobalListeners = function (event, callback) {
@@ -708,14 +700,14 @@ IOClusterClient.prototype.removeAllGlobalListeners = function (event, callback) 
   }
   if (event) {
     this._globalEmitter.removeAllListeners(event);
-    this._dropUnusedSubscriptions(null, null, event, callback);
+    this._dropUnusedSubscriptions(event, callback);
   } else {
     this._globalEmitter.removeAllListeners();
     var tasks = [];
     for (var event in this._globalSubscribers) {
       (function (event) {
         tasks.push(function (cb) {
-          self._dropUnusedSubscriptions(null, null, event, cb);
+          self._dropUnusedSubscriptions(event, cb);
         });
       })(event);
     }
@@ -789,7 +781,7 @@ IOClusterClient.prototype._subscribeSingleClientSocket = function (socket, event
     if (socket.eventSubscriptions == null) {
       socket.eventSubscriptions = {};
     }
-
+    
     if (socket.eventSubscriptions[event] == null) {
       socket.eventSubscriptions[event] = true;
       socket.eventSubscriptionCount++;
@@ -824,7 +816,7 @@ IOClusterClient.prototype._unsubscribeSingleClientSocket = function (socket, eve
   if (socket.eventSubscriptionCount != null) {
     socket.eventSubscriptionCount--;
   }
-  this._dropUnusedSubscriptions(socket.id, socket.ssid, event, callback);
+  this._dropUnusedSubscriptions(event, callback);
 };
 
 IOClusterClient.prototype.notifySockets = function (sockets, message) {
