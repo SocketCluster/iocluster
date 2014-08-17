@@ -779,7 +779,6 @@ IOClusterClient.prototype._subscribeSingleClientSocket = function (socket, event
     if (socket.eventSubscriptions == null) {
       socket.eventSubscriptions = {};
     }
-    
     if (socket.eventSubscriptions[event] == null) {
       socket.eventSubscriptions[event] = true;
       socket.eventSubscriptionCount++;
@@ -819,8 +818,11 @@ IOClusterClient.prototype._unsubscribeSingleClientSocket = function (socket, eve
 
 IOClusterClient.prototype.notifySockets = function (sockets, message) {
   for (var i in sockets) {
-    if (message.exclude == null || sockets[i].id != message.exclude) {
-      sockets[i].emit(message.event, message.data);
+    var socket = sockets[i];
+    if (socket.eventSubscriptions[message.event] &&
+      (message.exclude == null || socket.id != message.exclude)) {
+      
+      socket.emit(message.event, message.data);
     }
   }
 };
