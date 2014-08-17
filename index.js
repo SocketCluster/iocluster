@@ -117,10 +117,9 @@ AbstractDataClient.prototype.query = function () {
 };
 
 
-var Global = function (socketId, privateClientCluster, publicClientCluster, ioClusterClient) {
+var Global = function (privateClientCluster, publicClientCluster, ioClusterClient) {
   AbstractDataClient.call(this, publicClientCluster);
   
-  this.socketId = socketId;
   this._privateClientCluster = privateClientCluster;
   this._publicClientCluster = publicClientCluster;
   this._ioClusterClient = ioClusterClient;
@@ -133,7 +132,7 @@ Global.prototype._localizeDataKey = function (key) {
   return this._keyManager.getGlobalDataKey(key);
 };
 
-Global.prototype.broadcast = function (event, data, callback) {
+Global.prototype.publish = function (event, data, callback) {
   this._ioClusterClient.publishGlobalEvent(event, data, callback);
 };
 
@@ -648,13 +647,12 @@ IOClusterClient.prototype.getAddressSockets = function (ipAddress, callback) {
     for (i in data) {
       sockets.push(i);
     }
-    
     callback(err, sockets);
   });
 };
 
-IOClusterClient.prototype.global = function (socketId) {
-  return new Global(socketId, this._privateClientCluster, this._publicClientCluster, this);
+IOClusterClient.prototype.global = function () {
+  return new Global(this._privateClientCluster, this._publicClientCluster, this);
 };
 
 IOClusterClient.prototype.session = function (sessionId, socketId) {
