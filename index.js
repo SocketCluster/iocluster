@@ -615,13 +615,16 @@ IOClusterClient.prototype.unbind = function (socket, callback) {
       }
       if (self._sessions[socket.ssid]) {
         delete self._sessions[socket.ssid].sockets[socket.id];
+        if (isEmpty(self._sessions[socket.ssid].sockets)) {
+          delete self._sessions[socket.ssid];
+          self._privateClientCluster.expire([socket.sessionDataKey], self._dataExpiry, cb);
+          self.emit('sessionend', socket.ssid);
+        } else {
+          cb();
+        }
+      } else {
+        cb();
       }
-      
-      if (self._sessions[socket.ssid] && isEmpty(self._sessions[socket.ssid].sockets)) {
-        delete self._sessions[socket.ssid];
-        self.emit('sessionend', socket.ssid);
-      }
-      cb();
     }
   ],
   function (err) {
