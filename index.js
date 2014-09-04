@@ -676,8 +676,7 @@ IOClusterClient.prototype._dropUnusedSubscriptions = function (globalEvent, call
 };
 
 IOClusterClient.prototype.publishGlobalEvent = function (event, data, callback) {
-  var eventData = {event: event, data: data};
-  this._privateClientCluster.publish(event, eventData, callback);
+  this._privateClientCluster.publish(event, data, callback);
 };
 
 IOClusterClient.prototype.onGlobalEvent = function (event, handler, callback) {
@@ -816,18 +815,22 @@ IOClusterClient.prototype._unsubscribeSingleClientSocket = function (socket, eve
   this._dropUnusedSubscriptions(event, callback);
 };
 
-IOClusterClient.prototype.notifySockets = function (sockets, message) {
+IOClusterClient.prototype.notifySockets = function (sockets, data) {
   for (var i in sockets) {
     var socket = sockets[i];
-    if (socket.eventSubscriptions[message.event] &&
-      (message.exclude == null || socket.id != message.exclude)) {
+    if (socket.eventSubscriptions[data.event] &&
+      (data.exclude == null || socket.id != data.exclude)) {
       
-      socket.emit(message.event, message.data);
+      socket.emit(data.event, data.data);
     }
   }
 };
 
 IOClusterClient.prototype._handleGlobalMessage = function (channel, message) {
-  this.notifySockets(this._globalSubscribers[message.event], message);
-  this._globalEmitter.emit(message.event, message.data);
+  var data = {
+    event: channel,
+    data: message
+  };
+  this.notifySockets(this._globalSubscribers[channel], data);
+  this._globalEmitter.emit(channel, message);
 };
