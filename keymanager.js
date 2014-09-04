@@ -17,14 +17,6 @@ KeyManager.prototype.getGlobalDataKey = function (keys) {
   return keyChain;
 };
 
-KeyManager.prototype.getGlobalEventKey = function (key) {
-  if (key == null) {
-    return ['__iocl', 'gle'];
-  } else {
-    return ['__iocl', 'gle', key];
-  }
-};
-
 KeyManager.prototype.getSessionDataKey = function (sessionId, keys) {
   var keyChain = ['__iocl', 'sed', sessionId];
   if (keys != null) {

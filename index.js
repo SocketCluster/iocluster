@@ -336,10 +336,10 @@ var IOClusterClient = module.exports.IOClusterClient = function (options) {
   
   this._privateMapper = function (key, method, clientIds) {
     if (eventMethods[method]) {
-      if (key[2] == null) {
+      if (key == null) {
         return clientIds;
       }
-      return hasher(key[2]);
+      return hasher(key);
     }
     
     if (method == 'query' || method == 'run') {
@@ -668,8 +668,7 @@ IOClusterClient.prototype._dropUnusedSubscriptions = function (globalEvent, call
   if (isEmpty(this._globalSubscribers[globalEvent])) {
     delete this._globalSubscribers[globalEvent];
     if (EventEmitter.listenerCount(this._globalEmitter, globalEvent) < 1) {
-      var globalEventKey = this._keyManager.getGlobalEventKey(globalEvent);
-      self._privateClientCluster.unsubscribe(globalEventKey, callback);
+      self._privateClientCluster.unsubscribe(globalEvent, callback);
       return;
     }
   }
@@ -678,13 +677,12 @@ IOClusterClient.prototype._dropUnusedSubscriptions = function (globalEvent, call
 
 IOClusterClient.prototype.publishGlobalEvent = function (event, data, callback) {
   var eventData = {event: event, data: data};
-  this._privateClientCluster.publish(this._keyManager.getGlobalEventKey(event), eventData, callback);
+  this._privateClientCluster.publish(event, eventData, callback);
 };
 
 IOClusterClient.prototype.onGlobalEvent = function (event, handler, callback) {
   this._globalEmitter.on(event, handler);
-  var eventKey = this._keyManager.getGlobalEventKey(event);
-  this._privateClientCluster.subscribe(eventKey, callback);
+  this._privateClientCluster.subscribe(event, callback);
 };
 
 IOClusterClient.prototype.removeGlobalListener = function (event, handler, callback) {
@@ -800,8 +798,7 @@ IOClusterClient.prototype._subscribeSingleClientSocket = function (socket, event
       callback && callback(err);
     };
     
-    var eventKey = this._keyManager.getGlobalEventKey(event);
-    this._privateClientCluster.subscribe(eventKey, addSubscription);
+    this._privateClientCluster.subscribe(event, addSubscription);
   }
 };
 
