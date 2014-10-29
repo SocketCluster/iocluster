@@ -818,9 +818,7 @@ IOClusterClient.prototype._unsubscribeSingleClientSocket = function (socket, eve
 IOClusterClient.prototype.notifySockets = function (sockets, data) {
   for (var i in sockets) {
     var socket = sockets[i];
-    if (socket.eventSubscriptions[data.event] &&
-      (data.exclude == null || socket.id != data.exclude)) {
-      
+    if (data.exclude == null || socket.id != data.exclude) {
       socket.emit(data.event, data.data);
     }
   }
