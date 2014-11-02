@@ -824,11 +824,20 @@ IOClusterClient.prototype.notifySockets = function (sockets, data) {
   }
 };
 
+IOClusterClient.prototype.rawNotifySockets = function (sockets, data) {
+  for (var i in sockets) {
+    var socket = sockets[i];
+    if (data.exclude == null || socket.id != data.exclude) {
+      socket.emitRaw(data);
+    }
+  }
+};
+
 IOClusterClient.prototype._handleGlobalMessage = function (channel, message) {
   var data = {
-    event: channel,
+    channel: channel,
     data: message
   };
-  this.notifySockets(this._globalSubscribers[channel], data);
+  this.rawNotifySockets(this._globalSubscribers[channel], data);
   this._globalEmitter.emit(channel, message);
 };
