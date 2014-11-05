@@ -331,7 +331,7 @@ var IOClusterClient = module.exports.IOClusterClient = function (options) {
     return Math.abs(hash) % dataClients.length;
   };
   
-  var eventMethods = {
+  var channelMethods = {
     publish: true,
     subscribe: true,
     unsubscribe: true,
@@ -339,7 +339,7 @@ var IOClusterClient = module.exports.IOClusterClient = function (options) {
   };
   
   this._privateMapper = function (key, method, clientIds) {
-    if (eventMethods[method]) {
+    if (channelMethods[method]) {
       if (key == null) {
         return clientIds;
       }
@@ -517,8 +517,8 @@ IOClusterClient.prototype.bind = function (socket, callback) {
   
   socket.sessionDataKey = this._keyManager.getSessionDataKey(socket.ssid);
   socket.addressDataKey = this._keyManager.getGlobalDataKey(['__meta', 'addresses', socket.address]);
-  socket.eventSubscriptions = {};
-  socket.eventSubscriptionCount = 0;
+  socket.channelSubscriptions = {};
+  socket.channelSubscriptionCount = 0;
   
   this._handshake(socket, function (err) {
     if (err) {
@@ -747,7 +747,7 @@ IOClusterClient.prototype._unsubscribeClientSocket = function (socket, channels,
   
   if (channels == null) {
     channels = [];
-    for (var channel in socket.eventSubscriptions) {
+    for (var channel in socket.channelSubscriptions) {
       channels.push(channel);
     }
   }
@@ -771,26 +771,26 @@ IOClusterClient.prototype._unsubscribeClientSocket = function (socket, channels,
 IOClusterClient.prototype._subscribeSingleClientSocket = function (socket, channel, callback) {
   var self = this;
   
-  if (this._socketEventLimit && socket.eventSubscriptionCount >= this._socketEventLimit) {
+  if (this._socketEventLimit && socket.channelSubscriptionCount >= this._socketEventLimit) {
     callback('Socket ' + socket.id + ' tried to exceed the channel subscription limit of ' +
       this._socketEventLimit);
   } else {
-    if (socket.eventSubscriptionCount == null) {
-      socket.eventSubscriptionCount = 0;
+    if (socket.channelSubscriptionCount == null) {
+      socket.channelSubscriptionCount = 0;
     }
     
-    if (socket.eventSubscriptions == null) {
-      socket.eventSubscriptions = {};
+    if (socket.channelSubscriptions == null) {
+      socket.channelSubscriptions = {};
     }
-    if (socket.eventSubscriptions[channel] == null) {
-      socket.eventSubscriptions[channel] = true;
-      socket.eventSubscriptionCount++;
+    if (socket.channelSubscriptions[channel] == null) {
+      socket.channelSubscriptions[channel] = true;
+      socket.channelSubscriptionCount++;
     }
     
     var addSubscription = function (err) {
       if (err) {
-        delete socket.eventSubscriptions[channel];
-        socket.eventSubscriptionCount--;
+        delete socket.channelSubscriptions[channel];
+        socket.channelSubscriptionCount--;
       } else {
         if (!self._clientSubscribers[channel]) {
           self._clientSubscribers[channel] = {};
@@ -811,9 +811,9 @@ IOClusterClient.prototype._unsubscribeSingleClientSocket = function (socket, cha
       delete this._clientSubscribers[channel];
     }
   }
-  delete socket.eventSubscriptions[channel];
-  if (socket.eventSubscriptionCount != null) {
-    socket.eventSubscriptionCount--;
+  delete socket.channelSubscriptions[channel];
+  if (socket.channelSubscriptionCount != null) {
+    socket.channelSubscriptionCount--;
   }
   this._dropUnusedSubscriptions(channel, callback);
 };
