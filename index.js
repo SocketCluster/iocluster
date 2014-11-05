@@ -689,10 +689,13 @@ IOClusterClient.prototype.subscribe = function (channel, callback) {
   var self = this;
   
   if (!this._globalSubscriptions[channel]) {
-    this._globalSubscriptions[channel] = true;
+    this._globalSubscriptions[channel] = 'pending';
     this._privateClientCluster.subscribe(channel, function (err) {
       if (err) {
-        self._globalSubscriptions[channel] = false;
+        delete self._globalSubscriptions[channel];
+        self._dropUnusedSubscriptions(channel);
+      } else {
+        self._globalSubscriptions[channel] = true;
       }
       callback && callback(err);
     });
