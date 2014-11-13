@@ -318,6 +318,8 @@ var IOClusterClient = module.exports.IOClusterClient = function (options) {
   var hasher = function (str) {
     var ch;
     var hash = 0;
+    // Solves TypeError: Cannot read property 'length' of null
+    if ((str === null) || (str === undefined)) return hash;
     if (str.length == 0) return hash;
     for (var i = 0; i < str.length; i++) {
       ch = str.charCodeAt(i);
