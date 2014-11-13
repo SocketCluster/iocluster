@@ -322,7 +322,9 @@ var IOClusterClient = module.exports.IOClusterClient = function (options) {
   var hasher = function (str) {
     var ch;
     var hash = 0;
-    if (str.length == 0) return hash;
+    if (str == null || str.length == 0) {
+      return hash;
+    }
     for (var i = 0; i < str.length; i++) {
       ch = str.charCodeAt(i);
       hash = ((hash << 5) - hash) + ch;
@@ -347,7 +349,10 @@ var IOClusterClient = module.exports.IOClusterClient = function (options) {
     }
     
     if (method == 'query' || method == 'run') {
-      return hasher(key.mapIndex || 0);
+      if (key.mapIndex) {
+        return hasher(key.mapIndex);
+      }
+      return 0;
     }
     if (key instanceof Array) {
       if (key[3] == 'addresses' && key[2] == '__meta') {
