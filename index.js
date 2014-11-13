@@ -144,12 +144,16 @@ Global.prototype.unsubscribe = function (channel, callback) {
   this._ioClusterClient.unsubscribe(channel, callback);
 };
 
+Global.prototype.unsubscribeAll = function (callback) {
+  this._ioClusterClient.unsubscribeAll(callback);
+};
+
 Global.prototype.watch = function (channel, handler) {
   this._ioClusterClient.watch(channel, handler);
 };
 
 Global.prototype.unwatch = function (channel, handler) {
-  this._ioClusterClient.unwatch(channel, handler, callback);
+  this._ioClusterClient.unwatch(channel, handler);
 };
 
 Global.prototype.watchers = function (channel) {
@@ -166,10 +170,6 @@ Global.prototype.getMapper = function () {
 
 Global.prototype.map = function () {
   return this._publicClientCluster.map.apply(this._publicClientCluster, arguments);
-};
-
-Global.prototype.destroy = function (callback) {
-  // TODO
 };
 
 
@@ -384,6 +384,7 @@ var IOClusterClient = module.exports.IOClusterClient = function (options) {
   
   this._globalEmitter = new EventEmitter();
   this._globalSubscriptions = {};
+  this._globalClient = new Global(this._privateClientCluster, this._publicClientCluster, this);
   
   this._clientSubscribers = {};
   
@@ -666,7 +667,7 @@ IOClusterClient.prototype.getAddressSockets = function (ipAddress, callback) {
 };
 
 IOClusterClient.prototype.global = function () {
-  return new Global(this._privateClientCluster, this._publicClientCluster, this);
+  return this._globalClient;
 };
 
 IOClusterClient.prototype.session = function (sessionId, socketId) {
@@ -714,6 +715,21 @@ IOClusterClient.prototype.unsubscribe = function (channel, callback) {
   this._dropUnusedSubscriptions(channel, callback);
 };
 
+IOClusterClient.prototype.unsubscribeAll = function (callback) {
+  var self = this;
+  
+  var tasks = [];
+  for (var channel in this._globalSubscriptions) {
+    delete this._globalSubscriptions[channel];
+    (function (channel) {
+      tasks.push(function (cb) {
+        self._dropUnusedSubscriptions(channel, cb);
+      });
+    })(channel);
+  }
+  async.parallel(tasks, callback);
+};
+
 IOClusterClient.prototype.watch = function (channel, handler) {
   this._globalEmitter.on(channel, handler);
 };
@@ -721,8 +737,10 @@ IOClusterClient.prototype.watch = function (channel, handler) {
 IOClusterClient.prototype.unwatch = function (channel, handler) {
   if (handler) {
     this._globalEmitter.removeListener(channel, handler);
-  } else {
+  } else if (channel != null) {
     this._globalEmitter.removeAllListeners(channel);
+  } else {
+    this._globalEmitter.removeAllListeners();
   }
 };
 
