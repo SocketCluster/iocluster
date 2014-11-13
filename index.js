@@ -132,24 +132,28 @@ Global.prototype._localizeDataKey = function (key) {
   return this._keyManager.getGlobalDataKey(key);
 };
 
-Global.prototype.publish = function (event, data, callback) {
-  this._ioClusterClient.publishGlobalEvent(event, data, callback);
+Global.prototype.publish = function (channel, data, callback) {
+  this._ioClusterClient.publish(channel, data, callback);
 };
 
-Global.prototype.on = function (event, handler, callback) {
-  this._ioClusterClient.onGlobalEvent(event, handler, callback);
+Global.prototype.subscribe = function (channel, callback) {
+  this._ioClusterClient.subscribe(channel, callback);
 };
 
-Global.prototype.removeListener = function (event, handler, callback) {
-  this._ioClusterClient.removeGlobalListener(event, handler, callback);
+Global.prototype.unsubscribe = function (channel, callback) {
+  this._ioClusterClient.unsubscribe(channel, callback);
 };
 
-Global.prototype.removeAllListeners = function (event, callback) {
-  this._ioClusterClient.removeAllGlobalListeners(event, callback);
+Global.prototype.watch = function (channel, handler) {
+  this._ioClusterClient.watch(channel, handler);
 };
 
-Global.prototype.listeners = function (event) {
-  return this._ioClusterClient.getGlobalListeners(event);
+Global.prototype.unwatch = function (channel, handler) {
+  this._ioClusterClient.unwatch(channel, handler, callback);
+};
+
+Global.prototype.watchers = function (channel) {
+  return this._ioClusterClient.watchers(channel);
 };
 
 Global.prototype.setMapper = function (mapper) {
@@ -165,7 +169,7 @@ Global.prototype.map = function () {
 };
 
 Global.prototype.destroy = function (callback) {
-  this.removeAllListeners(null, callback);
+  // TODO
 };
 
 
@@ -318,7 +322,9 @@ var IOClusterClient = module.exports.IOClusterClient = function (options) {
   var hasher = function (str) {
     var ch;
     var hash = 0;
-    if (str.length == 0) return hash;
+    if (str == null || str.length == 0) {
+      return hash;
+    }
     for (var i = 0; i < str.length; i++) {
       ch = str.charCodeAt(i);
       hash = ((hash << 5) - hash) + ch;
@@ -327,7 +333,7 @@ var IOClusterClient = module.exports.IOClusterClient = function (options) {
     return Math.abs(hash) % dataClients.length;
   };
   
-  var eventMethods = {
+  var channelMethods = {
     publish: true,
     subscribe: true,
     unsubscribe: true,
@@ -335,7 +341,7 @@ var IOClusterClient = module.exports.IOClusterClient = function (options) {
   };
   
   this._privateMapper = function (key, method, clientIds) {
-    if (eventMethods[method]) {
+    if (channelMethods[method]) {
       if (key == null) {
         return clientIds;
       }
@@ -343,7 +349,10 @@ var IOClusterClient = module.exports.IOClusterClient = function (options) {
     }
     
     if (method == 'query' || method == 'run') {
-      return hasher(key.mapIndex || 0);
+      if (key.mapIndex) {
+        return hasher(key.mapIndex);
+      }
+      return 0;
     }
     if (key instanceof Array) {
       if (key[3] == 'addresses' && key[2] == '__meta') {
@@ -374,7 +383,9 @@ var IOClusterClient = module.exports.IOClusterClient = function (options) {
   this._addresses = {};
   
   this._globalEmitter = new EventEmitter();
-  this._globalSubscribers = {};
+  this._globalSubscriptions = {};
+  
+  this._clientSubscribers = {};
   
   var readyNum = 0;
   var firstTime = true;
@@ -511,8 +522,8 @@ IOClusterClient.prototype.bind = function (socket, callback) {
   
   socket.sessionDataKey = this._keyManager.getSessionDataKey(socket.ssid);
   socket.addressDataKey = this._keyManager.getGlobalDataKey(['__meta', 'addresses', socket.address]);
-  socket.eventSubscriptions = {};
-  socket.eventSubscriptionCount = 0;
+  socket.channelSubscriptions = {};
+  socket.channelSubscriptionCount = 0;
   
   this._handshake(socket, function (err) {
     if (err) {
@@ -546,8 +557,8 @@ IOClusterClient.prototype.bind = function (socket, callback) {
         metaDataKey: self._keyManager.getSessionDataKey(socket.ssid, ['__meta', 'sockets', socket.id])
       };
       
-      socket.on('subscribe', function (event, res) {
-        self._subscribeClientSocket(socket, event, function (err) {
+      socket.on('subscribe', function (channel, res) {
+        self._subscribeClientSocket(socket, channel, function (err) {
           if (err) {
             res.error(err);
             self.emit('notice', err);
@@ -557,8 +568,8 @@ IOClusterClient.prototype.bind = function (socket, callback) {
         });
       });
       
-      socket.on('unsubscribe', function (event, res) {
-        self._unsubscribeClientSocket(socket, event, function (err, isNotice) {
+      socket.on('unsubscribe', function (channel, res) {
+        self._unsubscribeClientSocket(socket, channel, function (err, isNotice) {
           if (err) {
             res.error(err);
             
@@ -662,157 +673,157 @@ IOClusterClient.prototype.session = function (sessionId, socketId) {
   return new Session(sessionId, socketId, this._privateClientCluster.map(sessionId)[0], this);
 };
 
-IOClusterClient.prototype._dropUnusedSubscriptions = function (globalEvent, callback) {
+IOClusterClient.prototype._dropUnusedSubscriptions = function (channel, callback) {
   var self = this;
   
-  if (isEmpty(this._globalSubscribers[globalEvent])) {
-    delete this._globalSubscribers[globalEvent];
-    if (EventEmitter.listenerCount(this._globalEmitter, globalEvent) < 1) {
-      self._privateClientCluster.unsubscribe(globalEvent, callback);
+  if (isEmpty(this._clientSubscribers[channel])) {
+    delete this._clientSubscribers[channel];
+    if (!this._globalSubscriptions[channel]) {
+      self._privateClientCluster.unsubscribe(channel, callback);
       return;
     }
   }
   callback && callback();
 };
 
-IOClusterClient.prototype.publishGlobalEvent = function (event, data, callback) {
-  this._privateClientCluster.publish(event, data, callback);
+IOClusterClient.prototype.publish = function (channel, data, callback) {
+  this._privateClientCluster.publish(channel, data, callback);
 };
 
-IOClusterClient.prototype.onGlobalEvent = function (event, handler, callback) {
-  this._globalEmitter.on(event, handler);
-  this._privateClientCluster.subscribe(event, callback);
-};
-
-IOClusterClient.prototype.removeGlobalListener = function (event, handler, callback) {
-  this._globalEmitter.removeListener(event, handler);
-  this._dropUnusedSubscriptions(event, callback);
-};
-
-IOClusterClient.prototype.removeAllGlobalListeners = function (event, callback) {
+IOClusterClient.prototype.subscribe = function (channel, callback) {
   var self = this;
   
-  if (event instanceof Function) {
-    callback = event;
-    event = null;
-  }
-  if (event) {
-    this._globalEmitter.removeAllListeners(event);
-    this._dropUnusedSubscriptions(event, callback);
-  } else {
-    this._globalEmitter.removeAllListeners();
-    var tasks = [];
-    for (var event in this._globalSubscribers) {
-      (function (event) {
-        tasks.push(function (cb) {
-          self._dropUnusedSubscriptions(event, cb);
-        });
-      })(event);
-    }
-    async.parallel(tasks, function (err) {
+  if (!this._globalSubscriptions[channel]) {
+    this._globalSubscriptions[channel] = 'pending';
+    this._privateClientCluster.subscribe(channel, function (err) {
+      if (err) {
+        delete self._globalSubscriptions[channel];
+        self._dropUnusedSubscriptions(channel);
+      } else {
+        self._globalSubscriptions[channel] = true;
+      }
       callback && callback(err);
     });
+  } else {
+    callback && callback();
   }
 };
 
-IOClusterClient.prototype.getGlobalListeners = function (event) {
-  return this._globalEmitter.listeners(event);
+IOClusterClient.prototype.unsubscribe = function (channel, callback) {
+  delete this._globalSubscriptions[channel];
+  this._dropUnusedSubscriptions(channel, callback);
 };
 
-IOClusterClient.prototype._subscribeClientSocket = function (socket, events, callback) {
+IOClusterClient.prototype.watch = function (channel, handler) {
+  this._globalEmitter.on(channel, handler);
+};
+
+IOClusterClient.prototype.unwatch = function (channel, handler) {
+  if (handler) {
+    this._globalEmitter.removeListener(channel, handler);
+  } else {
+    this._globalEmitter.removeAllListeners(channel);
+  }
+};
+
+IOClusterClient.prototype.watchers = function (channel) {
+  return this._globalEmitter.listeners(channel);
+};
+
+IOClusterClient.prototype._subscribeClientSocket = function (socket, channels, callback) {
   var self = this;
   
-  if (events instanceof Array) {
+  if (channels instanceof Array) {
     var tasks = [];
-    for (var i in events) {
-      (function (event) {
+    for (var i in channels) {
+      (function (channel) {
         tasks.push(function (cb) {
-          self._subscribeSingleClientSocket(socket, event, cb);
+          self._subscribeSingleClientSocket(socket, channel, cb);
         });
-      })(events[i]);
+      })(channels[i]);
     }
     async.waterfall(tasks, function (err) {
       callback && callback(err);
     });
   } else {
-    this._subscribeSingleClientSocket(socket, events, callback);
+    this._subscribeSingleClientSocket(socket, channels, callback);
   }
 };
 
-IOClusterClient.prototype._unsubscribeClientSocket = function (socket, events, callback) {
+IOClusterClient.prototype._unsubscribeClientSocket = function (socket, channels, callback) {
   var self = this;
   
-  if (events == null) {
-    events = [];
-    for (var event in socket.eventSubscriptions) {
-      events.push(event);
+  if (channels == null) {
+    channels = [];
+    for (var channel in socket.channelSubscriptions) {
+      channels.push(channel);
     }
   }
-  if (events instanceof Array) {
+  if (channels instanceof Array) {
     var tasks = [];
-    for (var i in events) {
-      (function (event) {
+    for (var i in channels) {
+      (function (channel) {
         tasks.push(function (cb) {
-          self._unsubscribeSingleClientSocket(socket, event, cb);
+          self._unsubscribeSingleClientSocket(socket, channel, cb);
         });
-      })(events[i]);
+      })(channels[i]);
     }
     async.waterfall(tasks, function (err) {
       callback && callback(err);
     });
   } else {
-    this._unsubscribeSingleClientSocket(socket, events, callback);
+    this._unsubscribeSingleClientSocket(socket, channels, callback);
   }
 };
 
-IOClusterClient.prototype._subscribeSingleClientSocket = function (socket, event, callback) {
+IOClusterClient.prototype._subscribeSingleClientSocket = function (socket, channel, callback) {
   var self = this;
   
-  if (this._socketEventLimit && socket.eventSubscriptionCount >= this._socketEventLimit) {
-    callback('Socket ' + socket.id + ' tried to exceed the event subscription limit of ' +
+  if (this._socketEventLimit && socket.channelSubscriptionCount >= this._socketEventLimit) {
+    callback('Socket ' + socket.id + ' tried to exceed the channel subscription limit of ' +
       this._socketEventLimit);
   } else {
-    if (socket.eventSubscriptionCount == null) {
-      socket.eventSubscriptionCount = 0;
+    if (socket.channelSubscriptionCount == null) {
+      socket.channelSubscriptionCount = 0;
     }
     
-    if (socket.eventSubscriptions == null) {
-      socket.eventSubscriptions = {};
+    if (socket.channelSubscriptions == null) {
+      socket.channelSubscriptions = {};
     }
-    if (socket.eventSubscriptions[event] == null) {
-      socket.eventSubscriptions[event] = true;
-      socket.eventSubscriptionCount++;
+    if (socket.channelSubscriptions[channel] == null) {
+      socket.channelSubscriptions[channel] = true;
+      socket.channelSubscriptionCount++;
     }
     
     var addSubscription = function (err) {
       if (err) {
-        delete socket.eventSubscriptions[event];
-        socket.eventSubscriptionCount--;
+        delete socket.channelSubscriptions[channel];
+        socket.channelSubscriptionCount--;
       } else {
-        if (!self._globalSubscribers[event]) {
-          self._globalSubscribers[event] = {};
+        if (!self._clientSubscribers[channel]) {
+          self._clientSubscribers[channel] = {};
         }
-        self._globalSubscribers[event][socket.id] = socket;
+        self._clientSubscribers[channel][socket.id] = socket;
       }
       callback && callback(err);
     };
     
-    this._privateClientCluster.subscribe(event, addSubscription);
+    this._privateClientCluster.subscribe(channel, addSubscription);
   }
 };
 
-IOClusterClient.prototype._unsubscribeSingleClientSocket = function (socket, event, callback) {
-  if (this._globalSubscribers[event]) {
-    delete this._globalSubscribers[event][socket.id];
-    if (isEmpty(this._globalSubscribers[event])) {
-      delete this._globalSubscribers[event];
+IOClusterClient.prototype._unsubscribeSingleClientSocket = function (socket, channel, callback) {
+  if (this._clientSubscribers[channel]) {
+    delete this._clientSubscribers[channel][socket.id];
+    if (isEmpty(this._clientSubscribers[channel])) {
+      delete this._clientSubscribers[channel];
     }
   }
-  delete socket.eventSubscriptions[event];
-  if (socket.eventSubscriptionCount != null) {
-    socket.eventSubscriptionCount--;
+  delete socket.channelSubscriptions[channel];
+  if (socket.channelSubscriptionCount != null) {
+    socket.channelSubscriptionCount--;
   }
-  this._dropUnusedSubscriptions(event, callback);
+  this._dropUnusedSubscriptions(channel, callback);
 };
 
 IOClusterClient.prototype.notifySockets = function (sockets, data) {
@@ -824,11 +835,20 @@ IOClusterClient.prototype.notifySockets = function (sockets, data) {
   }
 };
 
+IOClusterClient.prototype.rawNotifySockets = function (sockets, data) {
+  for (var i in sockets) {
+    var socket = sockets[i];
+    if (data.exclude == null || socket.id != data.exclude) {
+      socket.emitRaw(data);
+    }
+  }
+};
+
 IOClusterClient.prototype._handleGlobalMessage = function (channel, message) {
   var data = {
-    event: channel,
+    channel: channel,
     data: message
   };
-  this.notifySockets(this._globalSubscribers[channel], data);
+  this.rawNotifySockets(this._clientSubscribers[channel], data);
   this._globalEmitter.emit(channel, message);
 };
