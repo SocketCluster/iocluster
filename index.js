@@ -247,7 +247,8 @@ var IOCluster = module.exports.IOCluster = function (options) {
         secretKey: options.dataKey,
         expiryAccuracy: options.expiryAccuracy,
         downgradeToUser: options.downgradeToUser,
-        storeControllerPath: options.appStoreControllerPath
+        storeControllerPath: options.appStoreControllerPath,
+        processTermTimeout: options.processTermTimeout
       });
       
       self._dataServers[i] = dataServer;
