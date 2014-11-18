@@ -36,6 +36,7 @@ var ClientCluster = function (clients) {
     'remove',
     'removeRange',
     'removeAll',
+    'splice',
     'pop',
     'hasKey',
     'end'

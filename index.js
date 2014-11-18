@@ -80,6 +80,11 @@ AbstractDataClient.prototype.removeAll = function (callback) {
   this._dataClient.set.call(this._dataClient, clientRootKey, {}, callback);
 };
 
+AbstractDataClient.prototype.splice = function () {
+  arguments[0] = this._localizeDataKey(arguments[0]);
+  this._dataClient.splice.apply(this._dataClient, arguments);
+};
+
 AbstractDataClient.prototype.pop = function () {
   arguments[0] = this._localizeDataKey(arguments[0]);
   this._dataClient.pop.apply(this._dataClient, arguments);
@@ -243,6 +248,7 @@ var IOCluster = module.exports.IOCluster = function (options) {
       var socketPath = options.stores[i];
       
       dataServer = ndata.createServer({
+        id: i,
         socketPath: socketPath,
         secretKey: options.dataKey,
         expiryAccuracy: options.expiryAccuracy,
