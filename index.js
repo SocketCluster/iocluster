@@ -250,7 +250,7 @@ var IOCluster = module.exports.IOCluster = function (options) {
       dataServer = ndata.createServer({
         id: i,
         socketPath: socketPath,
-        secretKey: options.dataKey,
+        secretKey: options.secretKey,
         expiryAccuracy: options.expiryAccuracy,
         downgradeToUser: options.downgradeToUser,
         storeControllerPath: options.appStoreControllerPath,
@@ -321,7 +321,7 @@ var IOClusterClient = module.exports.IOClusterClient = function (options) {
     var socketPath = options.stores[i];
     dataClient = ndata.createClient({
       socketPath: socketPath,
-      secretKey: options.dataKey
+      secretKey: options.secretKey
     });
     dataClients.push(dataClient);
   }
