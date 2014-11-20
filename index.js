@@ -224,6 +224,23 @@ Session.prototype.transmit = function (event, data, callback) {
   EventEmitter.prototype.emit.call(this, event, data);
 };
 
+Session.prototype.kickOut = function (channel, message, callback) {
+  var self = this;
+  var sockets = this.getSockets();
+  
+  var tasks = [];
+  
+  for (var i in sockets) {
+    (function (socket) {
+      socket.emit('kickOut', {message: message, channel: channel});
+      tasks.push(function (cb) {
+        self._ioClusterClient.unsubscribeClientSocket(socket, channel, cb);
+      });
+    })(sockets[i]);
+  }
+  async.parallel(tasks, callback);
+};
+
 Session.prototype.getSockets = function () {
   return this._ioClusterClient.getSessionSockets(this.id);
 };
@@ -566,7 +583,7 @@ IOClusterClient.prototype.bind = function (socket, callback) {
       };
       
       socket.on('subscribe', function (channel, res) {
-        self._subscribeClientSocket(socket, channel, function (err) {
+        self.subscribeClientSocket(socket, channel, function (err) {
           if (err) {
             res.error(err);
             self.emit('notice', err);
@@ -577,7 +594,7 @@ IOClusterClient.prototype.bind = function (socket, callback) {
       });
       
       socket.on('unsubscribe', function (channel, res) {
-        self._unsubscribeClientSocket(socket, channel, function (err, isNotice) {
+        self.unsubscribeClientSocket(socket, channel, function (err, isNotice) {
           if (err) {
             res.error(err);
             
@@ -619,7 +636,7 @@ IOClusterClient.prototype.unbind = function (socket, callback) {
       var cb = arguments[arguments.length - 1];
       socket.removeAllListeners('subscribe');
       socket.removeAllListeners('unsubscribe');
-      self._unsubscribeClientSocket(socket, null, cb);
+      self.unsubscribeClientSocket(socket, null, cb);
     },
     function () {
       var cb = arguments[arguments.length - 1];
@@ -755,7 +772,7 @@ IOClusterClient.prototype.watchers = function (channel) {
   return this._globalEmitter.listeners(channel);
 };
 
-IOClusterClient.prototype._subscribeClientSocket = function (socket, channels, callback) {
+IOClusterClient.prototype.subscribeClientSocket = function (socket, channels, callback) {
   var self = this;
   
   if (channels instanceof Array) {
@@ -775,7 +792,7 @@ IOClusterClient.prototype._subscribeClientSocket = function (socket, channels, c
   }
 };
 
-IOClusterClient.prototype._unsubscribeClientSocket = function (socket, channels, callback) {
+IOClusterClient.prototype.unsubscribeClientSocket = function (socket, channels, callback) {
   var self = this;
   
   if (channels == null) {
