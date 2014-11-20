@@ -205,22 +205,22 @@ Session.prototype.clearAuth = function (callback) {
   this.remove('__auth', callback);
 };
 
-Session.prototype.emit = function (event, data) {
+Session.prototype.emit = function (event, data, callback) {
   var sockets = this._ioClusterClient.getSessionSockets(this.id);
   this._ioClusterClient.notifySockets(sockets, {
     event: event,
     data: data
-  });
+  }, callback);
   EventEmitter.prototype.emit.call(this, event, data);
 };
 
-Session.prototype.transmit = function (event, data) {
+Session.prototype.transmit = function (event, data, callback) {
   var sockets = this._ioClusterClient.getSessionSockets(this.id);
   this._ioClusterClient.notifySockets(sockets, {
     event: event,
     data: data,
     exclude: this.socketId
-  });
+  }, callback);
   EventEmitter.prototype.emit.call(this, event, data);
 };
 
@@ -851,11 +851,40 @@ IOClusterClient.prototype._unsubscribeSingleClientSocket = function (socket, cha
   this._dropUnusedSubscriptions(channel, callback);
 };
 
-IOClusterClient.prototype.notifySockets = function (sockets, data) {
-  for (var i in sockets) {
-    var socket = sockets[i];
-    if (data.exclude == null || socket.id != data.exclude) {
-      socket.emit(data.event, data.data);
+IOClusterClient.prototype.notifySockets = function (sockets, data, callback) {
+  if (callback) {
+    var tasks = {};
+    
+    var errorMap;
+    var dataMap = {};
+    for (var i in sockets) {
+      (function (socket) {
+        if (data.exclude == null || socket.id != data.exclude) {
+          tasks[socket.id] = function (cb) {
+            socket.emit(data.event, data.data, function (err, data) {
+              if (err) {
+                if (errorMap == null) {
+                  errorMap = {};
+                }
+                errorMap[socket.id] = err;
+              } else {
+                dataMap[socket.id] = data;
+              }
+              cb();
+            });
+          };
+        }
+      })(sockets[i]);
+    }
+    async.parallel(tasks, function () {
+      callback(errorMap, dataMap);
+    });
+  } else {
+    for (var i in sockets) {
+      var socket = sockets[i];
+      if (data.exclude == null || socket.id != data.exclude) {
+        socket.emit(data.event, data.data);
+      }
     }
   }
 };
