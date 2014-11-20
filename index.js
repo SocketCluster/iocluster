@@ -637,7 +637,7 @@ IOClusterClient.prototype.unbind = function (socket, callback) {
         if (isEmpty(self._sessions[socket.ssid].sockets)) {
           delete self._sessions[socket.ssid];
           self._privateClientCluster.expire([socket.sessionDataKey], self._dataExpiry, cb);
-          self.emit('sessionend', socket.ssid);
+          self.emit('sessionEnd', socket.ssid);
         } else {
           cb();
         }
