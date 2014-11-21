@@ -270,7 +270,8 @@ var IOCluster = module.exports.IOCluster = function (options) {
         expiryAccuracy: options.expiryAccuracy,
         downgradeToUser: options.downgradeToUser,
         storeControllerPath: options.appStoreControllerPath,
-        processTermTimeout: options.processTermTimeout
+        processTermTimeout: options.processTermTimeout,
+        storeOptions: options.storeOptions
       });
       
       self._dataServers[i] = dataServer;
