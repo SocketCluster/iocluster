@@ -544,17 +544,23 @@ IOClusterClient.prototype.bind = function (socket, callback) {
   
   callback = this._errorDomain.bind(callback);
   
-  // Decorate the socket with a kickOut method to allow us to kick it out
-  // from a particular sub/sub channels at any time.
-  socket.kickOut = function (channel, message, callback) {
-    socket.emit('kickOut', {message: message, channel: channel});
-    self.unsubscribeClientSocket(socket, channel, callback);
-  };
-  
   socket.sessionDataKey = this._keyManager.getSessionDataKey(socket.ssid);
   socket.addressDataKey = this._keyManager.getGlobalDataKey(['__meta', 'addresses', socket.address]);
   socket.channelSubscriptions = {};
   socket.channelSubscriptionCount = 0;
+  
+  // Decorate the socket with a kickOut method to allow us to kick it out
+  // from a particular sub/sub channels at any time.
+  socket.kickOut = function (channel, message, callback) {
+    if (channel == null) {
+      for (var i in socket.channelSubscriptions) {
+        socket.emit('kickOut', {message: message, channel: i});
+      }
+    } else {
+      socket.emit('kickOut', {message: message, channel: channel});
+    }
+    self.unsubscribeClientSocket(socket, channel, callback);
+  };
   
   this._handshake(socket, function (err) {
     if (err) {
