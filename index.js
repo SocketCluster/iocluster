@@ -319,7 +319,7 @@ var IOClusterClient = module.exports.IOClusterClient = function (options) {
   this._dataExpiry = options.dataExpiry;
   this._connectTimeout = options.connectTimeout;
   this._addressSocketLimit = options.addressSocketLimit;
-  this._socketEventLimit = options.socketEventLimit;
+  this._socketChannelLimit = options.socketChannelLimit;
   this._heartRate = options.heartRate || 4;
   
   // Expressed in milliseconds.
@@ -834,9 +834,9 @@ IOClusterClient.prototype.unsubscribeClientSocket = function (socket, channels, 
 IOClusterClient.prototype._subscribeSingleClientSocket = function (socket, channel, callback) {
   var self = this;
   
-  if (this._socketEventLimit && socket.channelSubscriptionCount >= this._socketEventLimit) {
+  if (this._socketChannelLimit && socket.channelSubscriptionCount >= this._socketChannelLimit) {
     callback('Socket ' + socket.id + ' tried to exceed the channel subscription limit of ' +
-      this._socketEventLimit);
+      this._socketChannelLimit);
   } else {
     if (socket.channelSubscriptionCount == null) {
       socket.channelSubscriptionCount = 0;
