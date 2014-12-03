@@ -496,13 +496,13 @@ IOClusterClient.prototype._extendExpiries = function () {
 IOClusterClient.prototype._handshake = function (socket, callback) {
   var self = this;
   
-  if (socket.address == null || socket.id == null) {
+  if (socket.remoteAddress == null || socket.id == null) {
     callback && callback("Failed handshake - Invalid handshake data");
   } else {
-    var remoteAddr = socket.address;
+    var remoteAddr = socket.remoteAddress;
     
-    if (remoteAddr.address) {
-      remoteAddr = remoteAddr.address;
+    if (remoteAddr.remoteAddress) {
+      remoteAddr = remoteAddr.remoteAddress;
     }
     
     var acceptHandshake = function () {
@@ -546,7 +546,7 @@ IOClusterClient.prototype.bind = function (socket, callback) {
   callback = this._errorDomain.bind(callback);
   
   socket.sessionDataKey = this._keyManager.getSessionDataKey(socket.ssid);
-  socket.addressDataKey = this._keyManager.getGlobalDataKey(['__meta', 'addresses', socket.address]);
+  socket.addressDataKey = this._keyManager.getGlobalDataKey(['__meta', 'addresses', socket.remoteAddress]);
   socket.channelSubscriptions = {};
   socket.channelSubscriptionCount = 0;
   
@@ -576,13 +576,13 @@ IOClusterClient.prototype.bind = function (socket, callback) {
       }
       self._sessions[socket.ssid].sockets[socket.id] = socket;
       
-      if (self._addresses[socket.address] == null) {
-        self._addresses[socket.address] = {
+      if (self._addresses[socket.remoteAddress] == null) {
+        self._addresses[socket.remoteAddress] = {
           dataKey: socket.addressDataKey,
           sockets: {}
         };
       }
-      self._addresses[socket.address].sockets[socket.id] = socket;
+      self._addresses[socket.remoteAddress].sockets[socket.id] = socket;
       
       var sessionStartQuery = function (dataMap, dataExpirer) {
         dataExpirer.expire([dataKey], expiry);
@@ -655,11 +655,11 @@ IOClusterClient.prototype.unbind = function (socket, callback) {
       var cb = arguments[arguments.length - 1];
       delete self._sockets[socket.id];
       self._privateClientCluster.remove(self._keyManager.getSessionDataKey(socket.ssid, ['__meta', 'sockets', socket.id]));
-      if (self._addresses[socket.address]) {
-        delete self._addresses[socket.address].sockets[socket.id];
-        self._privateClientCluster.remove(self._keyManager.getGlobalDataKey(['__meta', 'addresses', socket.address, 'sockets', socket.id]));
-        if (isEmpty(self._addresses[socket.address].sockets)) {
-          delete self._addresses[socket.address];
+      if (self._addresses[socket.remoteAddress]) {
+        delete self._addresses[socket.remoteAddress].sockets[socket.id];
+        self._privateClientCluster.remove(self._keyManager.getGlobalDataKey(['__meta', 'addresses', socket.remoteAddress, 'sockets', socket.id]));
+        if (isEmpty(self._addresses[socket.remoteAddress].sockets)) {
+          delete self._addresses[socket.remoteAddress];
         }
       }
       if (self._sessions[socket.ssid]) {
