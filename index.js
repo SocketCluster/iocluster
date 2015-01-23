@@ -318,7 +318,6 @@ var IOClusterClient = module.exports.IOClusterClient = function (options) {
   
   this._dataExpiry = options.dataExpiry;
   this._connectTimeout = options.connectTimeout;
-  this._addressSocketLimit = options.addressSocketLimit;
   this._socketChannelLimit = options.socketChannelLimit;
   this._heartRate = options.heartRate || 4;
   
@@ -379,9 +378,6 @@ var IOClusterClient = module.exports.IOClusterClient = function (options) {
       return 0;
     }
     if (key instanceof Array) {
-      if (key[3] == 'addresses' && key[2] == '__meta') {
-        return hasher(key[4]);
-      }
       if (key[2] == null) {
         return clientIds;
       }
@@ -404,7 +400,6 @@ var IOClusterClient = module.exports.IOClusterClient = function (options) {
   
   this._sockets = {};
   this._sessions = {};
-  this._addresses = {};
   
   this._globalEmitter = new EventEmitter();
   this._globalSubscriptions = {};
@@ -433,12 +428,6 @@ var IOClusterClient = module.exports.IOClusterClient = function (options) {
   }
   
   this._privateClientCluster.on('message', this._handleGlobalMessage.bind(this));
-  
-  process.on('exit', function () {
-    for (var i in self._addresses) {
-      self._privateClientCluster.remove(self._addresses[i].dataKey, {noAck: 1});
-    }
-  });
 };
 
 IOClusterClient.prototype = Object.create(EventEmitter.prototype);
@@ -476,21 +465,15 @@ IOClusterClient.prototype._processExpiryList = function (expiryList) {
 
 IOClusterClient.prototype._extendExpiries = function () {
   var dataExpiryList = new LinkedList();
-  var addressExpiryList = new LinkedList();
   
   var sessions = this._sessions;
-  var addresses = this._addresses;
   
   var i;
   for (i in sessions) {
     dataExpiryList.push(sessions[i].dataKey);
   }
-  for (i in addresses) {
-    addressExpiryList.push(addresses[i].dataKey);
-  }
   
   this._processExpiryList(dataExpiryList);
-  this._processExpiryList(addressExpiryList);
 };
 
 IOClusterClient.prototype._handshake = function (socket, callback) {
@@ -499,44 +482,7 @@ IOClusterClient.prototype._handshake = function (socket, callback) {
   if (socket.remoteAddress == null || socket.id == null) {
     callback && callback("Failed handshake - Invalid handshake data");
   } else {
-    var remoteAddr = socket.remoteAddress;
-    
-    if (remoteAddr.remoteAddress) {
-      remoteAddr = remoteAddr.remoteAddress;
-    }
-    
-    var acceptHandshake = function () {
-      var addressStartQuery = function (dataMap, dataExpirer) {
-        dataExpirer.expire([dataKey], expiry);
-        dataMap.set(addressSocketKey, 1);
-      };
-      addressStartQuery.mapIndex = remoteAddr;
-      addressStartQuery.data = {
-        dataKey: self._keyManager.getGlobalDataKey(['__meta', 'addresses', remoteAddr]),
-        expiry: self._connectTimeout,
-        addressSocketKey: self._keyManager.getGlobalDataKey(['__meta', 'addresses', remoteAddr, 'sockets', socket.id])
-      };
-      
-      self._privateClientCluster.query(addressStartQuery, function (err) {
-        callback && callback(err);
-      });
-    };
-    
-    if (this._addressSocketLimit > 0) {
-      this.getAddressSockets(remoteAddr, function (err, sockets) {
-        if (err) {
-          callback && callback(err);
-        } else {
-          if (sockets.length < self._addressSocketLimit) {
-            acceptHandshake();
-          } else {
-            callback && callback("Reached connection limit for the address " + remoteAddr);
-          }
-        }
-      });
-    } else {
-      acceptHandshake();
-    }
+    callback && callback();
   }
 };
 
@@ -546,7 +492,6 @@ IOClusterClient.prototype.bind = function (socket, callback) {
   callback = this._errorDomain.bind(callback);
   
   socket.sessionDataKey = this._keyManager.getSessionDataKey(socket.ssid);
-  socket.addressDataKey = this._keyManager.getGlobalDataKey(['__meta', 'addresses', socket.remoteAddress]);
   socket.channelSubscriptions = {};
   socket.channelSubscriptionCount = 0;
   
@@ -575,14 +520,6 @@ IOClusterClient.prototype.bind = function (socket, callback) {
         };
       }
       self._sessions[socket.ssid].sockets[socket.id] = socket;
-      
-      if (self._addresses[socket.remoteAddress] == null) {
-        self._addresses[socket.remoteAddress] = {
-          dataKey: socket.addressDataKey,
-          sockets: {}
-        };
-      }
-      self._addresses[socket.remoteAddress].sockets[socket.id] = socket;
       
       var sessionStartQuery = function (dataMap, dataExpirer) {
         dataExpirer.expire([dataKey], expiry);
@@ -621,18 +558,8 @@ IOClusterClient.prototype.bind = function (socket, callback) {
           }
         });
       });
-      
-      async.parallel([
-        function () {
-          var cb = arguments[arguments.length - 1];
-          self._privateClientCluster.query(sessionStartQuery, cb);
-        },
-        function () {
-          var cb = arguments[arguments.length - 1];
-          self._privateClientCluster.expire([socket.addressDataKey], self._dataExpiry, cb);
-        }
-      ],
-      function (err) {
+
+      self._privateClientCluster.query(sessionStartQuery, function (err) {
         callback(err, socket);
       });
     }
@@ -655,13 +582,7 @@ IOClusterClient.prototype.unbind = function (socket, callback) {
       var cb = arguments[arguments.length - 1];
       delete self._sockets[socket.id];
       self._privateClientCluster.remove(self._keyManager.getSessionDataKey(socket.ssid, ['__meta', 'sockets', socket.id]));
-      if (self._addresses[socket.remoteAddress]) {
-        delete self._addresses[socket.remoteAddress].sockets[socket.id];
-        self._privateClientCluster.remove(self._keyManager.getGlobalDataKey(['__meta', 'addresses', socket.remoteAddress, 'sockets', socket.id]));
-        if (isEmpty(self._addresses[socket.remoteAddress].sockets)) {
-          delete self._addresses[socket.remoteAddress];
-        }
-      }
+
       if (self._sessions[socket.ssid]) {
         delete self._sessions[socket.ssid].sockets[socket.id];
         if (isEmpty(self._sessions[socket.ssid].sockets)) {
@@ -687,20 +608,6 @@ IOClusterClient.prototype.getSessionSockets = function (ssid) {
     return {};
   }
   return session.sockets || {};
-};
-
-IOClusterClient.prototype.getAddressSockets = function (ipAddress, callback) {
-  var self = this;
-  
-  var addressDataKey = ['__meta', 'addresses', ipAddress, 'sockets'];
-  this._privateClientCluster.get(this._keyManager.getGlobalDataKey(addressDataKey), function (err, data) {
-    var sockets = [];
-    var i;
-    for (i in data) {
-      sockets.push(i);
-    }
-    callback(err, sockets);
-  });
 };
 
 IOClusterClient.prototype.global = function () {
