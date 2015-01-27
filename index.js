@@ -489,6 +489,9 @@ IOClusterClient.prototype._handshake = function (socket, callback) {
 IOClusterClient.prototype.bind = function (socket, callback) {
   var self = this;
   
+  callback(null, socket);
+  return;
+  
   callback = this._errorDomain.bind(callback);
   
   socket.sessionDataKey = this._keyManager.getSessionDataKey(socket.ssid);
