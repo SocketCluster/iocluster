@@ -4,9 +4,10 @@ var async = require('async');
 var LinkedList = require('linkedlist');
 var ClientCluster = require('./clientcluster').ClientCluster;
 var KeyManager = require('./keymanager').KeyManager;
-var domain = require('domain');
+var Channel = require('./channel');
 var utils = require('./utils');
 var isEmpty = utils.isEmpty;
+var domain = require('domain');
 
 
 var AbstractDataClient = function (dataClient) {
@@ -129,6 +130,7 @@ var Global = function (privateClientCluster, publicClientCluster, ioClusterClien
   this._publicClientCluster = publicClientCluster;
   this._ioClusterClient = ioClusterClient;
   this._keyManager = new KeyManager();
+  this._channels = {};
 };
 
 Global.prototype = Object.create(AbstractDataClient.prototype);
@@ -137,32 +139,140 @@ Global.prototype._localizeDataKey = function (key) {
   return this._keyManager.getGlobalDataKey(key);
 };
 
-Global.prototype.publish = function (channel, data, callback) {
-  this._ioClusterClient.publish(channel, data, callback);
+Global.prototype._triggerChannelSubscribe = function (channel) {
+  var channelName = channel.name;
+  
+  channel.state = channel.SUBSCRIBED;
+  
+  channel.emit('subscribe', channelName);
+  EventEmitter.prototype.emit.call(this, 'subscribe', channelName);
 };
 
-Global.prototype.subscribe = function (channel, callback) {
-  this._ioClusterClient.subscribe(channel, callback);
+Global.prototype._triggerChannelSubscribeFail = function (err, channel) {
+  var channelName = channel.name;
+  
+  channel.state = channel.UNSUBSCRIBED;
+  
+  channel.emit('subscribeFail', err, channelName);
+  EventEmitter.prototype.emit.call(this, 'subscribeFail', err, channelName);
 };
 
-Global.prototype.unsubscribe = function (channel, callback) {
-  this._ioClusterClient.unsubscribe(channel, callback);
+Global.prototype._triggerChannelUnsubscribe = function (channel, newState) {
+  var channelName = channel.name;
+  var oldState = channel.state;
+  
+  if (newState) {
+    channel.state = newState;
+  } else {
+    channel.state = channel.UNSUBSCRIBED;
+  }
+  if (oldState == channel.SUBSCRIBED) {
+    channel.emit('unsubscribe', channelName);
+    EventEmitter.prototype.emit.call(this, 'unsubscribe', channelName);
+  }
 };
 
-Global.prototype.unsubscribeAll = function (callback) {
-  this._ioClusterClient.unsubscribeAll(callback);
+Global.prototype.publish = function (channelName, data, callback) {
+  this._ioClusterClient.publish(channelName, data, callback);
 };
 
-Global.prototype.watch = function (channel, handler) {
-  this._ioClusterClient.watch(channel, handler);
+Global.prototype.subscribe = function (channelName) {
+  var self = this;
+  
+  var channel = this._channels[channelName];
+  
+  if (!channel) {
+    channel = new Channel(channelName, this);
+    this._channels[channelName] = channel;
+  }
+  
+  if (channel.state == channel.UNSUBSCRIBED) {
+    channel.state = channel.PENDING;
+    this._ioClusterClient.subscribe(channelName, function (err) {
+      if (err) {
+        self._triggerChannelSubscribeFail(err, channel);
+      } else {
+        self._triggerChannelSubscribe(channel);
+      }
+    });
+  }
+  return channel;
 };
 
-Global.prototype.unwatch = function (channel, handler) {
-  this._ioClusterClient.unwatch(channel, handler);
+Global.prototype.unsubscribe = function (channelName) {
+  var channel = this._channels[channelName];
+  
+  if (channel) {
+    if (channel.state != channel.UNSUBSCRIBED) {
+    
+      this._triggerChannelUnsubscribe(channel);
+      
+      // The only case in which unsubscribe can fail is if the connection is closed or dies.
+      // If that's the case, the server will automatically unsubscribe the client so
+      // we don't need to check for failure since this operation can never really fail.
+      
+      this._ioClusterClient.unsubscribe(channelName);
+    }
+  }
 };
 
-Global.prototype.watchers = function (channel) {
-  return this._ioClusterClient.watchers(channel);
+Global.prototype.channel = function (channelName) {
+  var currentChannel = this._channels[channelName];
+  
+  if (!currentChannel) {
+    currentChannel = new Channel(channelName, this);
+    this._channels[channelName] = currentChannel;
+  }
+  return currentChannel;
+};
+
+Global.prototype.destroyChannel = function (channelName) {
+  var channel = this._channels[channelName];
+  channel.unwatch();
+  channel.unsubscribe();
+  delete this._channels[channelName];
+  return this;
+};
+
+Global.prototype.subscriptions = function (includePending) {
+  var subs = [];
+  var channel, includeChannel;
+  for (var channelName in this._channels) {
+    channel = this._channels[channelName];
+    
+    if (includePending) {
+      includeChannel = channel && (channel.state == channel.SUBSCRIBED || 
+        channel.state == channel.PENDING);
+    } else {
+      includeChannel = channel && channel.state == channel.SUBSCRIBED;
+    }
+    
+    if (includeChannel) {
+      subs.push(channelName);
+    }
+  }
+  return subs;
+};
+
+Global.prototype.isSubscribed = function (channelName, includePending) {
+  var channel = this._channels[channelName];
+  if (includePending) {
+    return !!channel && (channel.state == channel.SUBSCRIBED ||
+      channel.state == channel.PENDING);
+  }
+  return !!channel && channel.state == channel.SUBSCRIBED;
+};
+
+Global.prototype.watch = function (channelName, handler) {
+  this._ioClusterClient.watch(channelName, handler);
+};
+
+Global.prototype.unwatch = function (channelName, handler) {
+  this._ioClusterClient.unwatch(channelName, handler);
+};
+
+Global.prototype.watchers = function (channelName) {
+  return this._ioClusterClient.watchers(channelName);
 };
 
 Global.prototype.setMapper = function (mapper) {
@@ -509,6 +619,13 @@ IOClusterClient.prototype.unsubscribeAll = function (callback) {
     })(channel);
   }
   async.parallel(tasks, callback);
+};
+
+IOClusterClient.prototype.isSubscribed = function (channel, includePending) {
+  if (includePending) {
+    return !!this._globalSubscriptions[channel];
+  }
+  return this._globalSubscriptions[channel] === true;
 };
 
 IOClusterClient.prototype.watch = function (channel, handler) {
