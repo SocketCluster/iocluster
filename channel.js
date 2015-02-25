@@ -26,12 +26,10 @@ Channel.prototype.getState = function () {
 
 Channel.prototype.subscribe = function () {
   this.client.subscribe(this.name);
-  return this;
 };
 
 Channel.prototype.unsubscribe = function () {
   this.client.unsubscribe(this.name);
-  return this;
 };
 
 Channel.prototype.isSubscribed = function (includePending) {
@@ -40,17 +38,14 @@ Channel.prototype.isSubscribed = function (includePending) {
 
 Channel.prototype.publish = function (data, callback) {
   this.client.publish(this.name, data, callback);
-  return this;
 };
 
 Channel.prototype.watch = function (handler) {
   this.client.watch(this.name, handler);
-  return this;
 };
 
 Channel.prototype.unwatch = function (handler) {
   this.client.unwatch(this.name, handler);
-  return this;
 };
 
 Channel.prototype.destroy = function () {
