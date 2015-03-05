@@ -527,10 +527,10 @@ IOClusterClient.prototype.bind = function (socket, callback) {
       socket.on('subscribe', function (channel, res) {
         self.subscribeClientSocket(socket, channel, function (err) {
           if (err) {
-            res.error(err);
+            res(err);
             self.emit('notice', err);
           } else {
-            res.end();
+            res();
           }
         });
       });
@@ -538,7 +538,7 @@ IOClusterClient.prototype.bind = function (socket, callback) {
       socket.on('unsubscribe', function (channel, res) {
         self.unsubscribeClientSocket(socket, channel, function (err, isNotice) {
           if (err) {
-            res.error(err);
+            res(err);
             
             if (isNotice) {
               self.emit('notice', err);
@@ -546,7 +546,7 @@ IOClusterClient.prototype.bind = function (socket, callback) {
               self.emit('error', err);
             }
           } else {
-            res.end();
+            res();
           }
         });
       });
