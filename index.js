@@ -374,7 +374,6 @@ var IOClusterClient = module.exports.IOClusterClient = function (options) {
     self.emit('error', err);
   });
   
-  this._connectTimeout = options.connectTimeout;
   this._socketChannelLimit = options.socketChannelLimit;
   
   this._keyManager = new KeyManager();
