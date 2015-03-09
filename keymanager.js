@@ -17,12 +17,4 @@ KeyManager.prototype.getGlobalDataKey = function (keys) {
   return keyChain;
 };
 
-KeyManager.prototype.getSessionDataKey = function (sessionId, keys) {
-  var keyChain = ['__iocl', 'sed', sessionId];
-  if (keys != null) {
-    keyChain = keyChain.concat(keys);
-  }
-  return keyChain;
-};
-
 module.exports.KeyManager = KeyManager;

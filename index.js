@@ -4,9 +4,10 @@ var async = require('async');
 var LinkedList = require('linkedlist');
 var ClientCluster = require('./clientcluster').ClientCluster;
 var KeyManager = require('./keymanager').KeyManager;
-var domain = require('domain');
+var Channel = require('./channel');
 var utils = require('./utils');
 var isEmpty = utils.isEmpty;
+var domain = require('domain');
 
 
 var AbstractDataClient = function (dataClient) {
@@ -129,40 +130,168 @@ var Global = function (privateClientCluster, publicClientCluster, ioClusterClien
   this._publicClientCluster = publicClientCluster;
   this._ioClusterClient = ioClusterClient;
   this._keyManager = new KeyManager();
+  this._channelEmitter = new EventEmitter();
+  this._channels = {};
+  
+  this._messageHander = this._handleChannelMessage.bind(this);
+  
+  this._ioClusterClient.on('message', this._messageHander);
 };
 
 Global.prototype = Object.create(AbstractDataClient.prototype);
+
+Global.prototype.destroy = function () {
+  this._ioClusterClient.removeListener('message', this._messageHander);
+};
 
 Global.prototype._localizeDataKey = function (key) {
   return this._keyManager.getGlobalDataKey(key);
 };
 
-Global.prototype.publish = function (channel, data, callback) {
-  this._ioClusterClient.publish(channel, data, callback);
+Global.prototype._handleChannelMessage = function (message) {
+  var channelName = message.channel;
+  if (this.isSubscribed(channelName)) {
+    this._channelEmitter.emit(channelName, message.data);
+  }
 };
 
-Global.prototype.subscribe = function (channel, callback) {
-  this._ioClusterClient.subscribe(channel, callback);
+Global.prototype._triggerChannelSubscribe = function (channel) {
+  var channelName = channel.name;
+  
+  channel.state = channel.SUBSCRIBED;
+  
+  channel.emit('subscribe', channelName);
+  EventEmitter.prototype.emit.call(this, 'subscribe', channelName);
 };
 
-Global.prototype.unsubscribe = function (channel, callback) {
-  this._ioClusterClient.unsubscribe(channel, callback);
+Global.prototype._triggerChannelSubscribeFail = function (err, channel) {
+  var channelName = channel.name;
+  
+  channel.state = channel.UNSUBSCRIBED;
+  
+  channel.emit('subscribeFail', err, channelName);
+  EventEmitter.prototype.emit.call(this, 'subscribeFail', err, channelName);
 };
 
-Global.prototype.unsubscribeAll = function (callback) {
-  this._ioClusterClient.unsubscribeAll(callback);
+Global.prototype._triggerChannelUnsubscribe = function (channel, newState) {
+  var channelName = channel.name;
+  var oldState = channel.state;
+  
+  if (newState) {
+    channel.state = newState;
+  } else {
+    channel.state = channel.UNSUBSCRIBED;
+  }
+  if (oldState == channel.SUBSCRIBED) {
+    channel.emit('unsubscribe', channelName);
+    EventEmitter.prototype.emit.call(this, 'unsubscribe', channelName);
+  }
 };
 
-Global.prototype.watch = function (channel, handler) {
-  this._ioClusterClient.watch(channel, handler);
+Global.prototype.publish = function (channelName, data, callback) {
+  this._ioClusterClient.publish(channelName, data, callback);
 };
 
-Global.prototype.unwatch = function (channel, handler) {
-  this._ioClusterClient.unwatch(channel, handler);
+Global.prototype.subscribe = function (channelName) {
+  var self = this;
+  
+  var channel = this._channels[channelName];
+  
+  if (!channel) {
+    channel = new Channel(channelName, this);
+    this._channels[channelName] = channel;
+  }
+  
+  if (channel.state == channel.UNSUBSCRIBED) {
+    channel.state = channel.PENDING;
+    this._ioClusterClient.subscribe(channelName, function (err) {
+      if (err) {
+        self._triggerChannelSubscribeFail(err, channel);
+      } else {
+        self._triggerChannelSubscribe(channel);
+      }
+    });
+  }
+  return channel;
 };
 
-Global.prototype.watchers = function (channel) {
-  return this._ioClusterClient.watchers(channel);
+Global.prototype.unsubscribe = function (channelName) {
+  var channel = this._channels[channelName];
+  
+  if (channel) {
+    if (channel.state != channel.UNSUBSCRIBED) {
+    
+      this._triggerChannelUnsubscribe(channel);
+      
+      // The only case in which unsubscribe can fail is if the connection is closed or dies.
+      // If that's the case, the server will automatically unsubscribe the client so
+      // we don't need to check for failure since this operation can never really fail.
+      
+      this._ioClusterClient.unsubscribe(channelName);
+    }
+  }
+};
+
+Global.prototype.channel = function (channelName) {
+  var currentChannel = this._channels[channelName];
+  
+  if (!currentChannel) {
+    currentChannel = new Channel(channelName, this);
+    this._channels[channelName] = currentChannel;
+  }
+  return currentChannel;
+};
+
+Global.prototype.destroyChannel = function (channelName) {
+  var channel = this._channels[channelName];
+  channel.unwatch();
+  channel.unsubscribe();
+  delete this._channels[channelName];
+};
+
+Global.prototype.subscriptions = function (includePending) {
+  var subs = [];
+  var channel, includeChannel;
+  for (var channelName in this._channels) {
+    channel = this._channels[channelName];
+    
+    if (includePending) {
+      includeChannel = channel && (channel.state == channel.SUBSCRIBED || 
+        channel.state == channel.PENDING);
+    } else {
+      includeChannel = channel && channel.state == channel.SUBSCRIBED;
+    }
+    
+    if (includeChannel) {
+      subs.push(channelName);
+    }
+  }
+  return subs;
+};
+
+Global.prototype.isSubscribed = function (channelName, includePending) {
+  var channel = this._channels[channelName];
+  if (includePending) {
+    return !!channel && (channel.state == channel.SUBSCRIBED ||
+      channel.state == channel.PENDING);
+  }
+  return !!channel && channel.state == channel.SUBSCRIBED;
+};
+
+Global.prototype.watch = function (channelName, handler) {
+  this._channelEmitter.on(channelName, handler);
+};
+
+Global.prototype.unwatch = function (channelName, handler) {
+  if (handler) {
+    this._channelEmitter.removeListener(channelName, handler);
+  } else {
+    this._channelEmitter.removeAllListeners(channelName);
+  }
+};
+
+Global.prototype.watchers = function (channelName) {
+  return this._channelEmitter.listeners(channelName);
 };
 
 Global.prototype.setMapper = function (mapper) {
@@ -175,77 +304,6 @@ Global.prototype.getMapper = function () {
 
 Global.prototype.map = function () {
   return this._publicClientCluster.map.apply(this._publicClientCluster, arguments);
-};
-
-
-var Session = function (sessionId, socketId, dataClient, ioClusterClient) {
-  AbstractDataClient.call(this, dataClient);
-  
-  this.id = sessionId;
-  this.socketId = socketId;
-  this._ioClusterClient = ioClusterClient;
-  this._keyManager = new KeyManager();
-};
-
-Session.prototype = Object.create(AbstractDataClient.prototype);
-
-Session.prototype._localizeDataKey = function (key) {
-  return this._keyManager.getSessionDataKey(this.id, key);
-};
-
-Session.prototype.setAuth = function (data, callback) {
-  this.set('__auth', data, callback);
-};
-
-Session.prototype.getAuth = function (callback) {
-  this.get('__auth', callback);
-};
-
-Session.prototype.clearAuth = function (callback) {
-  this.remove('__auth', callback);
-};
-
-Session.prototype.emit = function (event, data, callback) {
-  var sockets = this._ioClusterClient.getSessionSockets(this.id);
-  this._ioClusterClient.notifySockets(sockets, {
-    event: event,
-    data: data
-  }, callback);
-  EventEmitter.prototype.emit.call(this, event, data);
-};
-
-Session.prototype.transmit = function (event, data, callback) {
-  var sockets = this._ioClusterClient.getSessionSockets(this.id);
-  this._ioClusterClient.notifySockets(sockets, {
-    event: event,
-    data: data,
-    exclude: this.socketId
-  }, callback);
-  EventEmitter.prototype.emit.call(this, event, data);
-};
-
-Session.prototype.kickOut = function (channel, message, callback) {
-  var self = this;
-  var sockets = this.getSockets();
-  
-  var tasks = [];
-  
-  for (var i in sockets) {
-    (function (socket) {
-      tasks.push(function (cb) {
-        socket.kickOut(channel, message, cb);
-      });
-    })(sockets[i]);
-  }
-  async.parallel(tasks, callback);
-};
-
-Session.prototype.getSockets = function () {
-  return this._ioClusterClient.getSessionSockets(this.id);
-};
-
-Session.prototype.destroy = function () {
-  this.removeAllListeners();
 };
 
 
@@ -316,17 +374,8 @@ var IOClusterClient = module.exports.IOClusterClient = function (options) {
     self.emit('error', err);
   });
   
-  this._dataExpiry = options.dataExpiry;
-  this._connectTimeout = options.connectTimeout;
   this._socketChannelLimit = options.socketChannelLimit;
-  this._heartRate = options.heartRate || 4;
   
-  // Expressed in milliseconds.
-  // Added 15% safety margin to heartRate in order to shift expiryReset forward
-  // so that it doesn't clash with expiry.
-  this._expiryReset = Math.floor(this._dataExpiry * 1000 / (this._heartRate * 1.15));
-  
-  this._expiryBatchSize = 1000;
   this._keyManager = new KeyManager();
   this._ready = false;
   
@@ -399,9 +448,7 @@ var IOClusterClient = module.exports.IOClusterClient = function (options) {
   this._errorDomain.add(this._publicClientCluster);
   
   this._sockets = {};
-  this._sessions = {};
   
-  this._globalEmitter = new EventEmitter();
   this._globalSubscriptions = {};
   this._globalClient = new Global(this._privateClientCluster, this._publicClientCluster, this);
   
@@ -413,12 +460,7 @@ var IOClusterClient = module.exports.IOClusterClient = function (options) {
   var dataClientReady = function () {
     if (++readyNum >= dataClients.length && firstTime) {
       firstTime = false;
-      self._expiryInterval = setInterval(function () {
-        self._extendExpiries();
-      }, self._expiryReset);
-      
       self._ready = true;
-      
       self.emit('ready');
     }
   };
@@ -433,7 +475,6 @@ var IOClusterClient = module.exports.IOClusterClient = function (options) {
 IOClusterClient.prototype = Object.create(EventEmitter.prototype);
 
 IOClusterClient.prototype.destroy = function (callback) {
-  clearInterval(this._expiryInterval);
   this._privateClientCluster.removeAll(callback);
 };
 
@@ -445,41 +486,10 @@ IOClusterClient.prototype.on = function (event, listener) {
   }
 };
 
-IOClusterClient.prototype._processExpiryList = function (expiryList) {
-  var self = this;
-  var key, i;
-  var keys = [];
-  for (i=0; i<this._expiryBatchSize; i++) {
-    key = expiryList.shift();
-    if (key == null) {
-      break;
-    }
-    keys.push(key);
-  }
-  if (keys.length > 0) {
-    this._privateClientCluster.expire(keys, this._dataExpiry, function () {
-      self._processExpiryList(expiryList);
-    });
-  }
-};
-
-IOClusterClient.prototype._extendExpiries = function () {
-  var dataExpiryList = new LinkedList();
-  
-  var sessions = this._sessions;
-  
-  var i;
-  for (i in sessions) {
-    dataExpiryList.push(sessions[i].dataKey);
-  }
-  
-  this._processExpiryList(dataExpiryList);
-};
-
 IOClusterClient.prototype._handshake = function (socket, callback) {
   var self = this;
   
-  if (socket.remoteAddress == null || socket.id == null) {
+  if (socket.id == null) {
     callback && callback("Failed handshake - Invalid handshake data");
   } else {
     callback && callback();
@@ -491,7 +501,6 @@ IOClusterClient.prototype.bind = function (socket, callback) {
   
   callback = this._errorDomain.bind(callback);
   
-  socket.sessionDataKey = this._keyManager.getSessionDataKey(socket.ssid);
   socket.channelSubscriptions = {};
   socket.channelSubscriptionCount = 0;
   
@@ -513,32 +522,14 @@ IOClusterClient.prototype.bind = function (socket, callback) {
       callback(err, socket, true);
     } else {
       self._sockets[socket.id] = socket;
-      if (self._sessions[socket.ssid] == null) {
-        self._sessions[socket.ssid] = {
-          dataKey: socket.sessionDataKey,
-          sockets: {}
-        };
-      }
-      self._sessions[socket.ssid].sockets[socket.id] = socket;
-      
-      var sessionStartQuery = function (dataMap, dataExpirer) {
-        dataExpirer.expire([dataKey], expiry);
-        dataMap.set(metaDataKey, 1);
-      };
-      sessionStartQuery.mapIndex = socket.ssid;
-      sessionStartQuery.data = {
-        dataKey: socket.sessionDataKey,
-        expiry: self._dataExpiry,
-        metaDataKey: self._keyManager.getSessionDataKey(socket.ssid, ['__meta', 'sockets', socket.id])
-      };
       
       socket.on('subscribe', function (channel, res) {
         self.subscribeClientSocket(socket, channel, function (err) {
           if (err) {
-            res.error(err);
+            res(err);
             self.emit('notice', err);
           } else {
-            res.end();
+            res();
           }
         });
       });
@@ -546,7 +537,7 @@ IOClusterClient.prototype.bind = function (socket, callback) {
       socket.on('unsubscribe', function (channel, res) {
         self.unsubscribeClientSocket(socket, channel, function (err, isNotice) {
           if (err) {
-            res.error(err);
+            res(err);
             
             if (isNotice) {
               self.emit('notice', err);
@@ -554,14 +545,12 @@ IOClusterClient.prototype.bind = function (socket, callback) {
               self.emit('error', err);
             }
           } else {
-            res.end();
+            res();
           }
         });
       });
 
-      self._privateClientCluster.query(sessionStartQuery, function (err) {
-        callback(err, socket);
-      });
+      callback(null, socket);
     }
   });
 };
@@ -581,20 +570,7 @@ IOClusterClient.prototype.unbind = function (socket, callback) {
     function () {
       var cb = arguments[arguments.length - 1];
       delete self._sockets[socket.id];
-      self._privateClientCluster.remove(self._keyManager.getSessionDataKey(socket.ssid, ['__meta', 'sockets', socket.id]));
-
-      if (self._sessions[socket.ssid]) {
-        delete self._sessions[socket.ssid].sockets[socket.id];
-        if (isEmpty(self._sessions[socket.ssid].sockets)) {
-          delete self._sessions[socket.ssid];
-          self._privateClientCluster.expire([socket.sessionDataKey], self._dataExpiry, cb);
-          self.emit('sessionEnd', socket.ssid);
-        } else {
-          cb();
-        }
-      } else {
-        cb();
-      }
+      cb();
     }
   ],
   function (err) {
@@ -602,20 +578,8 @@ IOClusterClient.prototype.unbind = function (socket, callback) {
   });
 };
 
-IOClusterClient.prototype.getSessionSockets = function (ssid) {
-  var session = this._sessions[ssid];
-  if (session == null) {
-    return {};
-  }
-  return session.sockets || {};
-};
-
 IOClusterClient.prototype.global = function () {
   return this._globalClient;
-};
-
-IOClusterClient.prototype.session = function (sessionId, socketId) {
-  return new Session(sessionId, socketId, this._privateClientCluster.map(sessionId)[0], this);
 };
 
 IOClusterClient.prototype._dropUnusedSubscriptions = function (channel, callback) {
@@ -674,22 +638,11 @@ IOClusterClient.prototype.unsubscribeAll = function (callback) {
   async.parallel(tasks, callback);
 };
 
-IOClusterClient.prototype.watch = function (channel, handler) {
-  this._globalEmitter.on(channel, handler);
-};
-
-IOClusterClient.prototype.unwatch = function (channel, handler) {
-  if (handler) {
-    this._globalEmitter.removeListener(channel, handler);
-  } else if (channel != null) {
-    this._globalEmitter.removeAllListeners(channel);
-  } else {
-    this._globalEmitter.removeAllListeners();
+IOClusterClient.prototype.isSubscribed = function (channel, includePending) {
+  if (includePending) {
+    return !!this._globalSubscriptions[channel];
   }
-};
-
-IOClusterClient.prototype.watchers = function (channel) {
-  return this._globalEmitter.listeners(channel);
+  return this._globalSubscriptions[channel] === true;
 };
 
 IOClusterClient.prototype.subscribeClientSocket = function (socket, channels, callback) {
@@ -788,44 +741,6 @@ IOClusterClient.prototype._unsubscribeSingleClientSocket = function (socket, cha
   this._dropUnusedSubscriptions(channel, callback);
 };
 
-IOClusterClient.prototype.notifySockets = function (sockets, data, callback) {
-  if (callback) {
-    var tasks = {};
-    
-    var errorMap;
-    var dataMap = {};
-    for (var i in sockets) {
-      (function (socket) {
-        if (data.exclude == null || socket.id != data.exclude) {
-          tasks[socket.id] = function (cb) {
-            socket.emit(data.event, data.data, function (err, data) {
-              if (err) {
-                if (errorMap == null) {
-                  errorMap = {};
-                }
-                errorMap[socket.id] = err;
-              } else {
-                dataMap[socket.id] = data;
-              }
-              cb();
-            });
-          };
-        }
-      })(sockets[i]);
-    }
-    async.parallel(tasks, function () {
-      callback(errorMap, dataMap);
-    });
-  } else {
-    for (var i in sockets) {
-      var socket = sockets[i];
-      if (data.exclude == null || socket.id != data.exclude) {
-        socket.emit(data.event, data.data);
-      }
-    }
-  }
-};
-
 IOClusterClient.prototype.rawNotifySockets = function (sockets, data) {
   for (var i in sockets) {
     var socket = sockets[i];
@@ -841,5 +756,5 @@ IOClusterClient.prototype._handleGlobalMessage = function (channel, message) {
     data: message
   };
   this.rawNotifySockets(this._clientSubscribers[channel], data);
-  this._globalEmitter.emit(channel, message);
+  this.emit('message', data);
 };
