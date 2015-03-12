@@ -9,8 +9,8 @@ var Channel = function (name, client) {
   
   EventEmitter.call(this);
   
-  this.SUBSCRIBED = 'subscribed';
   this.PENDING = 'pending';
+  this.SUBSCRIBED = 'subscribed';
   this.UNSUBSCRIBED = 'unsubscribed';
   
   this.name = name;
