@@ -744,8 +744,10 @@ IOClusterClient.prototype._unsubscribeSingleClientSocket = function (socket, cha
 IOClusterClient.prototype.rawNotifySockets = function (sockets, data) {
   for (var i in sockets) {
     var socket = sockets[i];
-    if (data.exclude == null || socket.id != data.exclude) {
-      socket.emitRaw(data);
+    if ((data.exclude == null || socket.id != data.exclude) && 
+      socket.getState() == socket.OPEN) {
+      
+      socket.sendObject(data);
     }
   }
 };
