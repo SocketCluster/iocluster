@@ -5,8 +5,9 @@ var EventEmitter = require('events').EventEmitter;
 var ClientCluster = function (clients) {
   var self = this;
   
-  var handleMessage = function (channel, message) {
-    self.emit('message', channel, message);
+  var handleMessage = function () {
+    var args = Array.prototype.slice.call(arguments);
+    self.emit.apply(self, ['message'].concat(args));
   };
   
   for (var c in clients) {
@@ -22,6 +23,7 @@ var ClientCluster = function (clients) {
     'isSubscribed',
     'unsubscribe',
     'publish',
+    'publishRaw',
     'set',
     'getExpiry',
     'add',
