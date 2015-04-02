@@ -785,15 +785,24 @@ IOClusterClient.prototype._processPendingAcks = function (mid) {
   var pendingAck = this._publishPendingAckMap[mid];
 
   if (pendingAck) {
-    var backoffMultiplier = Math.pow(this.options.deliveryMultiplier, pendingAck.attemptCount++);
-    var delay = this.options.deliveryInitialDelay * 1000 * backoffMultiplier;
+    var sockets = pendingAck.sockets;
+    var backoffMultiplier = Math.pow(this.options.deliveryRetryMultiplier, pendingAck.attemptCount++);
+    var delay = this.options.deliveryRetryInitialDelay * 1000 * backoffMultiplier;
     
-    this.publishToSockets(pendingAck.sockets, pendingAck.data, true);
+    this.publishToSockets(sockets, pendingAck.data, true);
     
     var nextTimeoutTime = Date.now() + delay;
     if (nextTimeoutTime < pendingAck.deliveryTimeout) {
       pendingAck.retryTimeout = setTimeout(this._processPendingAcks.bind(this, mid), delay);
     } else {
+      var socketCount = 0;
+      for (var i in sockets) {
+        socketCount++;
+      }
+      var message = "Failed to deliver message '" + mid + "' to " + socketCount + " subscriber" + 
+        (socketCount == 1 ? '' : 's') + " on the '" + pendingAck.data.channel + "' channel";
+
+      this.emit('notice', message);
       delete this._publishPendingAckMap[mid];
     }
   }
@@ -815,13 +824,12 @@ IOClusterClient.prototype._handleGlobalMessage = function (channel, message, mid
     this.publishToSockets(subscriberSockets, data, false);
   } else {
 
-    this._publishPendingAckMap[mid] = {
+    var pendingAck = {
       data: data,
       sockets: {},
       attemptCount: 0,
       deliveryTimeout: Date.now() + this.options.deliveryTimeout * 1000
     };
-    var pendingAck = this._publishPendingAckMap[mid];
     
     var socket;
     
@@ -829,7 +837,8 @@ IOClusterClient.prototype._handleGlobalMessage = function (channel, message, mid
       socket = subscriberSockets[i];
       pendingAck.sockets[socket.id] = socket;
     }
-
+    
+    this._publishPendingAckMap[mid] = pendingAck;
     this._processPendingAcks(mid);
   }
   
