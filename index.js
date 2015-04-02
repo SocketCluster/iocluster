@@ -555,17 +555,6 @@ IOClusterClient.prototype.bind = function (socket, callback) {
           }
         });
       });
-      
-      socket.on('pubAck', function (mid) {
-        var pendingAck = self._publishPendingAckMap[mid];
-        if (pendingAck) {
-          delete pendingAck.sockets[socket.id];
-          if (isEmpty(pendingAck.sockets)) {
-            clearTimeout(pendingAck.retryTimeout);
-            delete self._publishPendingAckMap[mid];
-          }
-        }
-      });
 
       callback(null, socket);
     }
@@ -763,14 +752,31 @@ IOClusterClient.prototype._unsubscribeSingleClientSocket = function (socket, cha
   this._dropUnusedSubscriptions(channel, callback);
 };
 
-IOClusterClient.prototype.publishToSockets = function (sockets, data) {
+IOClusterClient.prototype._handlePubAck = function (socketId, err, mid) {
+  if (!err) {
+    var pendingAck = this._publishPendingAckMap[mid];
+    if (pendingAck) {
+      delete pendingAck.sockets[socketId];
+      if (isEmpty(pendingAck.sockets)) {
+        clearTimeout(pendingAck.retryTimeout);
+        delete this._publishPendingAckMap[mid];
+      }
+    }
+  }
+};
+
+IOClusterClient.prototype.publishToSockets = function (sockets, data, handleAck) {
   var socket;
   
   for (var i in sockets) {
     socket = sockets[i];
     
     if (socket.getState() == socket.OPEN) {
-      socket.emit('publish', data);
+      if (handleAck) {
+        socket.emit('publish', data, this._handlePubAck.bind(this, socket.id));
+      } else {
+        socket.emit('publish', data);
+      }
     }
   }
 };
@@ -782,7 +788,7 @@ IOClusterClient.prototype._processPendingAcks = function (mid) {
     var backoffMultiplier = Math.pow(this.options.deliveryMultiplier, pendingAck.attemptCount++);
     var delay = this.options.deliveryInitialDelay * 1000 * backoffMultiplier;
     
-    this.publishToSockets(pendingAck.sockets, pendingAck.data);
+    this.publishToSockets(pendingAck.sockets, pendingAck.data, true);
     
     var nextTimeoutTime = Date.now() + delay;
     if (nextTimeoutTime < pendingAck.deliveryTimeout) {
@@ -806,7 +812,7 @@ IOClusterClient.prototype._handleGlobalMessage = function (channel, message, mid
   var subscriberSockets = this._clientSubscribers[channel];
   
   if (mid == null || !this.options.deliveryTimeout) {
-    this.publishToSockets(subscriberSockets, data);
+    this.publishToSockets(subscriberSockets, data, false);
   } else {
 
     this._publishPendingAckMap[mid] = {
