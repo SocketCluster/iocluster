@@ -786,24 +786,29 @@ IOClusterClient.prototype._processPendingAcks = function (mid) {
 
   if (pendingAck) {
     var sockets = pendingAck.sockets;
-    var backoffMultiplier = Math.pow(this.options.deliveryRetryMultiplier, pendingAck.attemptCount++);
-    var delay = this.options.deliveryRetryInitialDelay * 1000 * backoffMultiplier;
     
-    this.publishToSockets(sockets, pendingAck.data, true);
-    
-    var nextTimeoutTime = Date.now() + delay;
-    if (nextTimeoutTime < pendingAck.deliveryTimeout) {
-      pendingAck.retryTimeout = setTimeout(this._processPendingAcks.bind(this, mid), delay);
-    } else {
-      var socketCount = 0;
-      for (var i in sockets) {
-        socketCount++;
-      }
-      var message = "Failed to deliver message '" + mid + "' to " + socketCount + " subscriber" + 
-        (socketCount == 1 ? '' : 's') + " on the '" + pendingAck.data.channel + "' channel";
-
-      this.emit('notice', message);
+    if (isEmpty(sockets)) {
       delete this._publishPendingAckMap[mid];
+    } else {
+      var backoffMultiplier = Math.pow(this.options.deliveryRetryMultiplier, pendingAck.attemptCount++);
+      var delay = this.options.deliveryRetryInitialDelay * 1000 * backoffMultiplier;
+      
+      this.publishToSockets(sockets, pendingAck.data, true);
+      
+      var nextTimeoutTime = Date.now() + delay;
+      if (nextTimeoutTime < pendingAck.deliveryTimeout) {
+        pendingAck.retryTimeout = setTimeout(this._processPendingAcks.bind(this, mid), delay);
+      } else {
+        var socketCount = 0;
+        for (var i in sockets) {
+          socketCount++;
+        }
+        var message = "Failed to deliver message '" + mid + "' to " + socketCount + " subscriber" + 
+          (socketCount == 1 ? '' : 's') + " on the '" + pendingAck.data.channel + "' channel";
+
+        this.emit('notice', message);
+        delete this._publishPendingAckMap[mid];
+      }
     }
   }
 };
