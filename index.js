@@ -752,16 +752,20 @@ IOClusterClient.prototype._unsubscribeSingleClientSocket = function (socket, cha
   this._dropUnusedSubscriptions(channel, callback);
 };
 
+IOClusterClient.prototype.clearPubAck = function (socketId, mid) {
+  var pendingAck = this._publishPendingAckMap[mid];
+  if (pendingAck) {
+    delete pendingAck.sockets[socketId];
+    if (isEmpty(pendingAck.sockets)) {
+      clearTimeout(pendingAck.retryTimeout);
+      delete this._publishPendingAckMap[mid];
+    }
+  }
+};
+
 IOClusterClient.prototype._handlePubAck = function (socketId, err, mid) {
   if (!err) {
-    var pendingAck = this._publishPendingAckMap[mid];
-    if (pendingAck) {
-      delete pendingAck.sockets[socketId];
-      if (isEmpty(pendingAck.sockets)) {
-        clearTimeout(pendingAck.retryTimeout);
-        delete this._publishPendingAckMap[mid];
-      }
-    }
+    this.clearPubAck(socketId, mid);
   }
 };
 
