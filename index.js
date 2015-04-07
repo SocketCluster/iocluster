@@ -188,8 +188,23 @@ Global.prototype._triggerChannelUnsubscribe = function (channel, newState) {
   }
 };
 
-Global.prototype.publish = function (channelName, data, callback) {
-  this._ioClusterClient.publish(channelName, data, callback);
+// publish(channelName, [data, isVolatile, callback])
+Global.prototype.publish = function () {
+  var channelName = arguments[0];
+  var data = arguments[1];
+  var isVolatile;
+  if (arguments[2] instanceof Function) {
+    isVolatile = false;
+    callback = arguments[2];
+  } else {
+    isVolatile = !!arguments[2];
+    callback = arguments[3];
+  }
+  if (isVolatile) {
+    this._ioClusterClient.publishRaw(channelName, data, null, callback);
+  } else {
+    this._ioClusterClient.publish(channelName, data, callback);
+  }
 };
 
 Global.prototype.publishRaw = function (channelName, data, mid, callback) {
