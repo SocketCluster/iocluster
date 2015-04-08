@@ -419,16 +419,20 @@ var IOClusterClient = module.exports.IOClusterClient = function (options) {
     dataClients.push(dataClient);
   }
   
-  var hasher = function (str) {
+  var hasher = function (key) {
     var ch;
     var hash = 0;
-    if (str == null || str.length == 0) {
-      return hash;
-    }
-    for (var i = 0; i < str.length; i++) {
-      ch = str.charCodeAt(i);
-      hash = ((hash << 5) - hash) + ch;
-      hash = hash & hash;
+    if (typeof key == 'number') {
+      hash = key;
+    } else {
+      if (key == null || key.length == 0) {
+        return hash;
+      }
+      for (var i = 0; i < key.length; i++) {
+        ch = key.charCodeAt(i);
+        hash = ((hash << 5) - hash) + ch;
+        hash = hash & hash;
+      }
     }
     return Math.abs(hash) % dataClients.length;
   };
