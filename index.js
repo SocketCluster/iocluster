@@ -109,17 +109,25 @@ AbstractDataClient.prototype.extractValues = function (object) {
 };
 
 /*
-  query(query,[ data, callback])
+  run(queryFn,[ data, callback])
 */
-AbstractDataClient.prototype.query = function () {
+AbstractDataClient.prototype.run = function () {
   var options = {
     baseKey: this._localizeDataKey()
   };
   
+  var callback;
+  
+  if (arguments[1] instanceof Function) {
+    callback = arguments[1];
+  } else {
+    options.data = arguments[1];
+    callback = arguments[2];
+  }
   if (arguments[1] && !(arguments[1] instanceof Function)) {
     options.data = arguments[1];
   }
-  this._dataClient.run(arguments[0], options, arguments[2]);
+  this._dataClient.run(arguments[0], options, callback);
 };
 
 
@@ -145,7 +153,7 @@ Global.prototype.destroy = function () {
 };
 
 Global.prototype._localizeDataKey = function (key) {
-  return this._keyManager.getGlobalDataKey(key);
+  return null;
 };
 
 Global.prototype._handleChannelMessage = function (message) {
