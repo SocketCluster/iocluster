@@ -196,19 +196,19 @@ Global.prototype._triggerChannelUnsubscribe = function (channel, newState) {
   }
 };
 
-// publish(channelName, [data, isVolatile, callback])
+// publish(channelName, [data, serviceLevel, callback])
 Global.prototype.publish = function () {
   var channelName = arguments[0];
   var data = arguments[1];
-  var isVolatile;
+  var serviceLevel, callback;
   if (arguments[2] instanceof Function) {
-    isVolatile = false;
+    serviceLevel = 0;
     callback = arguments[2];
   } else {
-    isVolatile = !!arguments[2];
+    serviceLevel = arguments[2] || 0;
     callback = arguments[3];
   }
-  if (isVolatile) {
+  if (serviceLevel < 1) {
     this._ioClusterClient.publishRaw(channelName, data, null, callback);
   } else {
     this._ioClusterClient.publish(channelName, data, callback);
