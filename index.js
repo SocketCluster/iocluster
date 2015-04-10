@@ -208,15 +208,11 @@ Global.prototype.publish = function () {
     serviceLevel = arguments[2] || 0;
     callback = arguments[3];
   }
-  if (serviceLevel < 1) {
-    this._ioClusterClient.publishRaw(channelName, data, null, callback);
-  } else {
-    this._ioClusterClient.publish(channelName, data, callback);
-  }
+  this._ioClusterClient.publish(channelName, data, serviceLevel, callback);
 };
 
-Global.prototype.publishRaw = function (channelName, data, mid, callback) {
-  this._ioClusterClient.publishRaw(channelName, data, mid, callback);
+Global.prototype.publishRaw = function (channelName, data, options, callback) {
+  this._ioClusterClient.publishRaw(channelName, data, options, callback);
 };
 
 Global.prototype.subscribe = function (channelName) {
@@ -628,8 +624,8 @@ IOClusterClient.prototype._dropUnusedSubscriptions = function (channel, callback
   callback && callback();
 };
 
-IOClusterClient.prototype.publishRaw = function (channel, data, mid, callback) {
-  this._privateClientCluster.publishRaw(channel, data, mid, callback);
+IOClusterClient.prototype.publishRaw = function (channel, data, options, callback) {
+  this._privateClientCluster.publishRaw(channel, data, options, callback);
 };
 
 // publish(channel, [data, callback])
@@ -844,24 +840,33 @@ IOClusterClient.prototype._processPendingAcks = function (mid) {
   }
 };
 
-IOClusterClient.prototype._handleGlobalMessage = function (channel, message, mid) {
-  var data = {
+IOClusterClient.prototype._handleGlobalMessage = function (channel, message, options) {
+  var packet = {
     channel: channel,
     data: message
   };
-  
-  if (mid != null) {
-    data.mid = mid;
+
+  var mid, pid;
+  if (options) {
+    mid = options.mid;
+    pid = options.pid;
+    
+    if (mid != null) {
+      packet.mid = mid;
+    }
+    if (pid != null) {
+      packet.pid = pid;
+    }
   }
   
   var subscriberSockets = this._clientSubscribers[channel];
   
   if (mid == null || !this.options.deliveryTimeout) {
-    this.publishToSockets(subscriberSockets, data, false);
+    this.publishToSockets(subscriberSockets, packet, false);
   } else {
 
     var pendingAck = {
-      data: data,
+      data: packet,
       sockets: {},
       attemptCount: 0,
       deliveryTimeout: Date.now() + this.options.deliveryTimeout * 1000
@@ -878,5 +883,5 @@ IOClusterClient.prototype._handleGlobalMessage = function (channel, message, mid
     this._processPendingAcks(mid);
   }
   
-  this.emit('message', data);
+  this.emit('message', packet);
 };
