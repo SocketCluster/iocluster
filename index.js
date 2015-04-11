@@ -786,8 +786,21 @@ IOClusterClient.prototype.clearPubAck = function (socketId, mid) {
   }
 };
 
-IOClusterClient.prototype._handlePubAck = function (socketId, err, mid) {
-  if (!err) {
+IOClusterClient.prototype._handlePubAck = function (socketId, err, responseData) {
+  var mid;
+  if (err) {
+    // On error, responseData is an event object
+    if (err.type != 'timeout' && responseData && responseData.data) {
+      mid = responseData.data.mid;
+    }
+  } else {
+    // On success responseData is an mid
+    mid = responseData;
+  }
+  if (mid) {
+    // We stop waiting for the ack if the client responded to the publish event
+    // (including error responses) or if the outgoing request was explicitly blocked
+    // by outbound middleware.
     this.clearPubAck(socketId, mid);
   }
 };
