@@ -1,7 +1,6 @@
 var EventEmitter = require('events').EventEmitter;
 var ndata = require('ndata');
 var async = require('async');
-var LinkedList = require('linkedlist');
 var ClientCluster = require('./clientcluster').ClientCluster;
 var KeyManager = require('./keymanager').KeyManager;
 var Channel = require('./channel');

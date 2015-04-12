@@ -23,7 +23,6 @@
   },
   "dependencies": {
     "async": "0.1.22",
-    "linkedlist": "1.0.1",
     "ndata": "2.7.x"
   },
   "main": "index",
