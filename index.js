@@ -859,16 +859,12 @@ IOClusterClient.prototype._handleGlobalMessage = function (channel, message, opt
     data: message
   };
 
-  var mid, pid;
+  var mid;
   if (options) {
     mid = options.mid;
-    pid = options.pid;
     
     if (mid != null) {
       packet.mid = mid;
-    }
-    if (pid != null) {
-      packet.pid = pid;
     }
   }
   
