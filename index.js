@@ -777,10 +777,20 @@ IOClusterClient.prototype._unsubscribeSingleClientSocket = function (socket, cha
 IOClusterClient.prototype.clearPubAck = function (socketId, mid) {
   var pendingAck = this._publishPendingAckMap[mid];
   if (pendingAck) {
+    var socket = pendingAck.sockets[socketId];
+    
     delete pendingAck.sockets[socketId];
     if (isEmpty(pendingAck.sockets)) {
       clearTimeout(pendingAck.retryTimeout);
       delete this._publishPendingAckMap[mid];
+      if (socket.receivedPubAckCount == null) {
+        socket.receivedPubAckCount = 0;
+      }
+      socket.receivedPubAckCount++;
+      if (socket.receivedPubAckCount >= socket.pendingPubAckCount) {
+        socket.pendingPubAckCount = 0;
+        socket.receivedPubAckCount = 0;
+      }
     }
   }
 };
@@ -885,6 +895,12 @@ IOClusterClient.prototype._handleGlobalMessage = function (channel, message, opt
     for (var i in subscriberSockets) {
       socket = subscriberSockets[i];
       pendingAck.sockets[socket.id] = socket;
+      
+      if (socket.pendingPubAckCount == null) {
+        socket.pendingPubAckCount = 0;
+      }
+      // Add sequence number to guarantee ordering on client side
+      packet.seq = socket.pendingPubAckCount++;
     }
     
     this._publishPendingAckMap[mid] = pendingAck;
