@@ -195,19 +195,19 @@ Global.prototype._triggerChannelUnsubscribe = function (channel, newState) {
   }
 };
 
-// publish(channelName, [data, serviceLevel, callback])
+// publish(channelName, [data, guaranteeDelivery, callback])
 Global.prototype.publish = function () {
   var channelName = arguments[0];
   var data = arguments[1];
-  var serviceLevel, callback;
+  var guaranteeDelivery, callback;
   if (arguments[2] instanceof Function) {
-    serviceLevel = 0;
+    guaranteeDelivery = false;
     callback = arguments[2];
   } else {
-    serviceLevel = arguments[2] || 0;
+    guaranteeDelivery = arguments[2];
     callback = arguments[3];
   }
-  this._ioClusterClient.publish(channelName, data, serviceLevel, callback);
+  this._ioClusterClient.publish(channelName, data, guaranteeDelivery, callback);
 };
 
 Global.prototype.publishRaw = function (channelName, data, options, callback) {
@@ -627,7 +627,7 @@ IOClusterClient.prototype.publishRaw = function (channel, data, options, callbac
   this._privateClientCluster.publishRaw(channel, data, options, callback);
 };
 
-// publish(channel, [data, callback])
+// publish(channel, [data, guaranteeDelivery, callback])
 IOClusterClient.prototype.publish = function () {
   this._privateClientCluster.publish.apply(this._privateClientCluster, arguments);
 };
@@ -850,6 +850,7 @@ IOClusterClient.prototype._processPendingAcks = function (mid) {
       } else {
         var socketCount = 0;
         for (var i in sockets) {
+          this.clearPubAck(sockets[i].id, mid);
           socketCount++;
         }
         var message = "Failed to deliver message '" + mid + "' to " + socketCount + " subscriber" + 
