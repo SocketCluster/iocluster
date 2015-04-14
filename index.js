@@ -814,18 +814,22 @@ IOClusterClient.prototype._handlePubAck = function (socketId, err, responseData)
   }
 };
 
-IOClusterClient.prototype.publishToSockets = function (sockets, data, handleAck) {
+IOClusterClient.prototype.publishToSockets = function (sockets, data, mid) {
   var socket;
   
   for (var i in sockets) {
     socket = sockets[i];
     
-    if (socket.getState() == socket.OPEN) {
-      if (handleAck) {
-        socket.emit('publish', data, this._handlePubAck.bind(this, socket.id));
-      } else {
+    var state = socket.getState();
+    if (state == socket.OPEN) {
+      if (mid == null) {
         socket.emit('publish', data);
+      } else {
+        socket.emit('publish', data, this._handlePubAck.bind(this, socket.id));
       }
+    } else if (state == socket.CLOSED && mid != null) {
+      // If socket is closed, don't try to publish to it again
+      this.clearPubAck(socket.id, mid);
     }
   }
 };
@@ -842,7 +846,7 @@ IOClusterClient.prototype._processPendingAcks = function (mid) {
       var backoffMultiplier = Math.pow(this.options.deliveryRetryMultiplier, pendingAck.attemptCount++);
       var delay = this.options.deliveryRetryInitialDelay * 1000 * backoffMultiplier;
       
-      this.publishToSockets(sockets, pendingAck.data, true);
+      this.publishToSockets(sockets, pendingAck.data, mid);
       
       var nextTimeoutTime = Date.now() + delay;
       if (nextTimeoutTime < pendingAck.deliveryTimeout) {
@@ -881,7 +885,7 @@ IOClusterClient.prototype._handleGlobalMessage = function (channel, message, opt
   var subscriberSockets = this._clientSubscribers[channel];
   
   if (mid == null || !this.options.deliveryTimeout) {
-    this.publishToSockets(subscriberSockets, packet, false);
+    this.publishToSockets(subscriberSockets, packet);
   } else {
 
     var pendingAck = {
