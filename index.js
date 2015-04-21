@@ -345,6 +345,7 @@ var IOCluster = module.exports.IOCluster = function (options) {
       
       dataServer = ndata.createServer({
         id: i,
+        instanceId: options.instanceId,
         socketPath: socketPath,
         secretKey: options.secretKey,
         expiryAccuracy: options.expiryAccuracy,
