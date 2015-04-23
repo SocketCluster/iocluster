@@ -525,10 +525,9 @@ IOClusterClient.prototype._handshake = function (socket, callback) {
   }
 };
 
-IOClusterClient.prototype.bind = function (socket, callback) {
+// Add pub/sub functions to socket object
+IOClusterClient.prototype._decorateSocket = function (socket) {
   var self = this;
-  
-  callback = this._errorDomain.bind(callback);
   
   socket.channelSubscriptions = {};
   socket.channelSubscriptionCount = 0;
@@ -545,6 +544,26 @@ IOClusterClient.prototype.bind = function (socket, callback) {
     }
     self.unsubscribeClientSocket(socket, channel, callback);
   };
+  
+  socket.subscriptions = function () {
+    var subs = [];
+    for (var i in socket.channelSubscriptions) {
+      subs.push(i);
+    }
+    return subs;
+  };
+  
+  socket.isSubscribed = function (channel) {
+    return !!socket.channelSubscriptions[channel];
+  };
+};
+
+IOClusterClient.prototype.bind = function (socket, callback) {
+  var self = this;
+  
+  callback = this._errorDomain.bind(callback);
+  
+  this._decorateSocket(socket);
   
   this._handshake(socket, function (err) {
     if (err) {
