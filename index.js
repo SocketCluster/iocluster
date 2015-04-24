@@ -195,23 +195,8 @@ Global.prototype._triggerChannelUnsubscribe = function (channel, newState) {
   }
 };
 
-// publish(channelName, [data, guaranteeDelivery, callback])
-Global.prototype.publish = function () {
-  var channelName = arguments[0];
-  var data = arguments[1];
-  var guaranteeDelivery, callback;
-  if (arguments[2] instanceof Function) {
-    guaranteeDelivery = false;
-    callback = arguments[2];
-  } else {
-    guaranteeDelivery = arguments[2];
-    callback = arguments[3];
-  }
-  this._ioClusterClient.publish(channelName, data, guaranteeDelivery, callback);
-};
-
-Global.prototype.publishRaw = function (channelName, data, options, callback) {
-  this._ioClusterClient.publishRaw(channelName, data, options, callback);
+Global.prototype.publish = function (channelName, data, callback) {
+  this._ioClusterClient.publish(channelName, data, callback);
 };
 
 Global.prototype.subscribe = function (channelName) {
@@ -481,7 +466,6 @@ var IOClusterClient = module.exports.IOClusterClient = function (options) {
   this._globalClient = new Global(this._privateClientCluster, this._publicClientCluster, this);
   
   this._clientSubscribers = {};
-  this._publishPendingAckMap = {};
   
   var readyNum = 0;
   var firstTime = true;
@@ -643,13 +627,8 @@ IOClusterClient.prototype._dropUnusedSubscriptions = function (channel, callback
   callback && callback();
 };
 
-IOClusterClient.prototype.publishRaw = function (channel, data, options, callback) {
-  this._privateClientCluster.publishRaw(channel, data, options, callback);
-};
-
-// publish(channel, [data, guaranteeDelivery, callback])
-IOClusterClient.prototype.publish = function () {
-  this._privateClientCluster.publish.apply(this._privateClientCluster, arguments);
+IOClusterClient.prototype.publish = function (channelName, data, callback) {
+  this._privateClientCluster.publish(channelName, data, callback);
 };
 
 IOClusterClient.prototype.subscribe = function (channel, callback) {
@@ -794,142 +773,16 @@ IOClusterClient.prototype._unsubscribeSingleClientSocket = function (socket, cha
   this._dropUnusedSubscriptions(channel, callback);
 };
 
-IOClusterClient.prototype.clearPubAck = function (socketId, mid) {
-  var pendingAck = this._publishPendingAckMap[mid];
-  if (pendingAck) {
-    var socket = pendingAck.sockets[socketId];
-    
-    delete pendingAck.sockets[socketId];
-    if (isEmpty(pendingAck.sockets)) {
-      clearTimeout(pendingAck.retryTimeout);
-      delete this._publishPendingAckMap[mid];
-      if (socket.receivedPubAckCount == null) {
-        socket.receivedPubAckCount = 0;
-      }
-      socket.receivedPubAckCount++;
-      if (socket.receivedPubAckCount >= socket.pendingPubAckCount) {
-        socket.pendingPubAckCount = 0;
-        socket.receivedPubAckCount = 0;
-      }
-    }
-  }
-};
-
-IOClusterClient.prototype._handlePubAck = function (socketId, err, responseData) {
-  var mid;
-  if (err) {
-    // On error, responseData is an event object
-    if (err.type != 'timeout' && responseData && responseData.data) {
-      mid = responseData.data.mid;
-    }
-  } else {
-    // On success responseData is an mid
-    mid = responseData;
-  }
-  if (mid) {
-    // We stop waiting for the ack if the client responded to the publish event
-    // (including error responses) or if the outgoing request was explicitly blocked
-    // by outbound middleware.
-    this.clearPubAck(socketId, mid);
-  }
-};
-
-IOClusterClient.prototype.publishToSockets = function (sockets, data, mid) {
-  var socket;
-  
-  for (var i in sockets) {
-    socket = sockets[i];
-    
-    var state = socket.getState();
-    if (state == socket.OPEN) {
-      if (mid == null) {
-        socket.emit('publish', data);
-      } else {
-        socket.emit('publish', data, this._handlePubAck.bind(this, socket.id));
-      }
-    } else if (state == socket.CLOSED && mid != null) {
-      // If socket is closed, don't try to publish to it again
-      this.clearPubAck(socket.id, mid);
-    }
-  }
-};
-
-IOClusterClient.prototype._processPendingAcks = function (mid) {
-  var pendingAck = this._publishPendingAckMap[mid];
-
-  if (pendingAck) {
-    var sockets = pendingAck.sockets;
-    
-    if (isEmpty(sockets)) {
-      delete this._publishPendingAckMap[mid];
-    } else {
-      var backoffMultiplier = Math.pow(this.options.deliveryRetryMultiplier, pendingAck.attemptCount++);
-      var delay = this.options.deliveryRetryInitialDelay * 1000 * backoffMultiplier;
-      
-      this.publishToSockets(sockets, pendingAck.data, mid);
-      
-      var nextTimeoutTime = Date.now() + delay;
-      if (nextTimeoutTime < pendingAck.deliveryTimeout) {
-        pendingAck.retryTimeout = setTimeout(this._processPendingAcks.bind(this, mid), delay);
-      } else {
-        var socketCount = 0;
-        for (var i in sockets) {
-          this.clearPubAck(sockets[i].id, mid);
-          socketCount++;
-        }
-        var message = "Failed to deliver message '" + mid + "' to " + socketCount + " subscriber" + 
-          (socketCount == 1 ? '' : 's') + " on the '" + pendingAck.data.channel + "' channel";
-
-        this.emit('notice', message);
-        delete this._publishPendingAckMap[mid];
-      }
-    }
-  }
-};
-
 IOClusterClient.prototype._handleGlobalMessage = function (channel, message, options) {
   var packet = {
     channel: channel,
     data: message
   };
-
-  var mid;
-  if (options) {
-    mid = options.mid;
-    
-    if (mid != null) {
-      packet.mid = mid;
-    }
-  }
   
   var subscriberSockets = this._clientSubscribers[channel];
   
-  if (mid == null || !this.options.deliveryTimeout) {
-    this.publishToSockets(subscriberSockets, packet);
-  } else {
-
-    var pendingAck = {
-      data: packet,
-      sockets: {},
-      attemptCount: 0,
-      deliveryTimeout: Date.now() + this.options.deliveryTimeout * 1000
-    };
-    
-    var socket;
-    
-    for (var i in subscriberSockets) {
-      socket = subscriberSockets[i];
-      pendingAck.sockets[socket.id] = socket;
-      
-      if (socket.pendingPubAckCount == null) {
-        socket.pendingPubAckCount = 0;
-      }
-      // Add sequence number to guarantee ordering on client side
-      packet.seq = socket.pendingPubAckCount++;
-    }
-    
-    this._publishPendingAckMap[mid] = pendingAck;
-    this._processPendingAcks(mid);
+  for (var i in subscriberSockets) {
+    subscriberSockets[i].emit('publish', packet);
   }
   
   this.emit('message', packet);

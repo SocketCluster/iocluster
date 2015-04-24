@@ -36,19 +36,9 @@ Channel.prototype.isSubscribed = function (includePending) {
   return this.client.isSubscribed(this.name, includePending);
 };
 
-// publish([data, guaranteeDelivery, callback])
-Channel.prototype.publish = function () {
-  var data = arguments[0];
-  var guaranteeDelivery, callback;
-  if (arguments[1] instanceof Function) {
-    guaranteeDelivery = false;
-    callback = arguments[1];
-  } else {
-    guaranteeDelivery = arguments[1];
-    callback = arguments[2];
-  }
-  
-  this.client.publish(this.name, data, guaranteeDelivery, callback);
+// publish(data, [callback])
+Channel.prototype.publish = function (data, callback) {
+  this.client.publish(this.name, data, callback);
 };
 
 Channel.prototype.watch = function (handler) {

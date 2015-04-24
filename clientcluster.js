@@ -23,7 +23,6 @@ var ClientCluster = function (clients) {
     'isSubscribed',
     'unsubscribe',
     'publish',
-    'publishRaw',
     'set',
     'getExpiry',
     'add',
