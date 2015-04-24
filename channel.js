@@ -36,7 +36,6 @@ Channel.prototype.isSubscribed = function (includePending) {
   return this.client.isSubscribed(this.name, includePending);
 };
 
-// publish(data, [callback])
 Channel.prototype.publish = function (data, callback) {
   this.client.publish(this.name, data, callback);
 };
