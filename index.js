@@ -752,6 +752,9 @@ IOClusterClient.prototype._subscribeSingleClientSocket = function (socket, chann
         }
         self._clientSubscribers[channel][socket.id] = socket;
       }
+      if (!err) {
+        socket.emit('subscribe', channel);
+      }
       callback && callback(err);
     };
     
@@ -760,6 +763,8 @@ IOClusterClient.prototype._subscribeSingleClientSocket = function (socket, chann
 };
 
 IOClusterClient.prototype._unsubscribeSingleClientSocket = function (socket, channel, callback) {
+  var self = this;
+  
   if (this._clientSubscribers[channel]) {
     delete this._clientSubscribers[channel][socket.id];
     if (isEmpty(this._clientSubscribers[channel])) {
@@ -770,7 +775,10 @@ IOClusterClient.prototype._unsubscribeSingleClientSocket = function (socket, cha
   if (socket.channelSubscriptionCount != null) {
     socket.channelSubscriptionCount--;
   }
-  this._dropUnusedSubscriptions(channel, callback);
+  this._dropUnusedSubscriptions(channel, function () {
+    socket.emit('unsubscribe', channel);
+    callback.apply(self, arguments);
+  });
 };
 
 IOClusterClient.prototype._handleGlobalMessage = function (channel, message, options) {
