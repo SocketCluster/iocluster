@@ -521,10 +521,10 @@ IOClusterClient.prototype._decorateSocket = function (socket) {
   socket.kickOut = function (channel, message, callback) {
     if (channel == null) {
       for (var i in socket.channelSubscriptions) {
-        socket.emit('kickOut', {message: message, channel: i});
+        socket.emit('#kickOut', {message: message, channel: i});
       }
     } else {
-      socket.emit('kickOut', {message: message, channel: channel});
+      socket.emit('#kickOut', {message: message, channel: channel});
     }
     self.unsubscribeClientSocket(socket, channel, callback);
   };
@@ -555,7 +555,7 @@ IOClusterClient.prototype.bind = function (socket, callback) {
     } else {
       self._sockets[socket.id] = socket;
       
-      socket.on('subscribe', function (channel, res) {
+      socket.on('#subscribe', function (channel, res) {
         self.subscribeClientSocket(socket, channel, function (err) {
           if (err) {
             res(err);
@@ -566,7 +566,7 @@ IOClusterClient.prototype.bind = function (socket, callback) {
         });
       });
       
-      socket.on('unsubscribe', function (channel, res) {
+      socket.on('#unsubscribe', function (channel, res) {
         self.unsubscribeClientSocket(socket, channel, function (err, isNotice) {
           if (err) {
             res(err);
@@ -595,8 +595,8 @@ IOClusterClient.prototype.unbind = function (socket, callback) {
   async.waterfall([
     function () {
       var cb = arguments[arguments.length - 1];
-      socket.removeAllListeners('subscribe');
-      socket.removeAllListeners('unsubscribe');
+      socket.removeAllListeners('#subscribe');
+      socket.removeAllListeners('#unsubscribe');
       self.unsubscribeClientSocket(socket, null, cb);
     },
     function () {
@@ -782,7 +782,7 @@ IOClusterClient.prototype._handleGlobalMessage = function (channel, message, opt
   var subscriberSockets = this._clientSubscribers[channel];
   
   for (var i in subscriberSockets) {
-    subscriberSockets[i].emit('publish', packet);
+    subscriberSockets[i].emit('#publish', packet);
   }
   
   this.emit('message', packet);
