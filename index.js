@@ -727,7 +727,7 @@ IOClusterClient.prototype._subscribeSingleClientSocket = function (socket, chann
   var self = this;
   
   if (this._socketChannelLimit && socket.channelSubscriptionCount >= this._socketChannelLimit) {
-    callback('Socket ' + socket.id + ' tried to exceed the channel subscription limit of ' +
+    callback && callback('Socket ' + socket.id + ' tried to exceed the channel subscription limit of ' +
       this._socketChannelLimit);
   } else {
     if (socket.channelSubscriptionCount == null) {
@@ -777,7 +777,7 @@ IOClusterClient.prototype._unsubscribeSingleClientSocket = function (socket, cha
   }
   this._dropUnusedSubscriptions(channel, function () {
     socket.emit('unsubscribe', channel);
-    callback.apply(self, arguments);
+    callback && callback.apply(self, arguments);
   });
 };
 
