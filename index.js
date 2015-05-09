@@ -323,13 +323,15 @@ var IOCluster = module.exports.IOCluster = function (options) {
   var readyCount = 0;
   var len = options.stores.length;
   var firstTime = true;
+  var startDebugPort = options.debug;
   
-  for (var i=0; i<len; i++) {
+  for (var i = 0; i < len; i++) {
     var launchServer = function (i) {
       var socketPath = options.stores[i];
       
       dataServer = ndata.createServer({
         id: i,
+        debug: startDebugPort ? startDebugPort + i : null,
         instanceId: options.instanceId,
         socketPath: socketPath,
         secretKey: options.secretKey,
