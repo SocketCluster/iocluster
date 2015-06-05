@@ -501,11 +501,11 @@ IOClusterClient.prototype.on = function (event, listener) {
   }
 };
 
-IOClusterClient.prototype._handshake = function (socket, callback) {
+IOClusterClient.prototype._validateSocket = function (socket, callback) {
   var self = this;
   
   if (socket.id == null) {
-    callback && callback("Failed handshake - Invalid handshake data");
+    callback && callback('Failed to validate - Socket did not have required id field');
   } else {
     callback && callback();
   }
@@ -551,7 +551,7 @@ IOClusterClient.prototype.bind = function (socket, callback) {
   
   this._decorateSocket(socket);
   
-  this._handshake(socket, function (err) {
+  this._validateSocket(socket, function (err) {
     if (err) {
       callback(err, socket, true);
     } else {
