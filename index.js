@@ -3,7 +3,7 @@ var ndata = require('ndata');
 var async = require('async');
 var ClientCluster = require('./clientcluster').ClientCluster;
 var KeyManager = require('./keymanager').KeyManager;
-var Channel = require('./channel');
+var SCChannel = require('sc-channel').SCChannel;
 var utils = require('./utils');
 var isEmpty = utils.isEmpty;
 var domain = require('domain');
@@ -205,7 +205,7 @@ Global.prototype.subscribe = function (channelName) {
   var channel = this._channels[channelName];
   
   if (!channel) {
-    channel = new Channel(channelName, this);
+    channel = new SCChannel(channelName, this);
     this._channels[channelName] = channel;
   }
   
@@ -243,7 +243,7 @@ Global.prototype.channel = function (channelName) {
   var currentChannel = this._channels[channelName];
   
   if (!currentChannel) {
-    currentChannel = new Channel(channelName, this);
+    currentChannel = new SCChannel(channelName, this);
     this._channels[channelName] = currentChannel;
   }
   return currentChannel;
