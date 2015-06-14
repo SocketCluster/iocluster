@@ -16,82 +16,58 @@ var AbstractDataClient = function (dataClient) {
 AbstractDataClient.prototype = Object.create(EventEmitter.prototype);
 
 AbstractDataClient.prototype.set = function () {
-  arguments[0] = this._localizeDataKey(arguments[0]);
   this._dataClient.set.apply(this._dataClient, arguments);
 };
 
 AbstractDataClient.prototype.expire = function () {
-  var keys = arguments[0];
-  for (var i in keys) {
-    keys[i] = this._localizeDataKey(keys[i]);
-  }
-  arguments[0] = keys;
-  
   this._dataClient.expire.apply(this._dataClient, arguments);
 };
 
 AbstractDataClient.prototype.unexpire = function () {
-  var keys = arguments[0];
-  for (var i in keys) {
-    keys[i] = this._localizeDataKey(keys[i]);
-  }
-  arguments[0] = keys;
-  
   this._dataClient.unexpire.apply(this._dataClient, arguments);
 };
 
 AbstractDataClient.prototype.add = function () {
-  arguments[0] = this._localizeDataKey(arguments[0]);
   this._dataClient.add.apply(this._dataClient, arguments);
 };
 
 AbstractDataClient.prototype.get = function () {
-  arguments[0] = this._localizeDataKey(arguments[0]);
   this._dataClient.get.apply(this._dataClient, arguments);
 };
 
 AbstractDataClient.prototype.getRange = function () {
-  arguments[0] = this._localizeDataKey(arguments[0]);
   this._dataClient.getRange.apply(this._dataClient, arguments);
 };
 
-AbstractDataClient.prototype.getAll = function (callback) {
-  var clientRootKey = this._localizeDataKey();
-  this._dataClient.get.call(this._dataClient, clientRootKey, callback);
+AbstractDataClient.prototype.getAll = function () {
+  this._dataClient.getAll.apply(this._dataClient, arguments);
 };
 
 AbstractDataClient.prototype.count = function () {
-  arguments[0] = this._localizeDataKey(arguments[0]);
   this._dataClient.count.apply(this._dataClient, arguments);
 };
 
 AbstractDataClient.prototype.remove = function () {
-  arguments[0] = this._localizeDataKey(arguments[0]);
   this._dataClient.remove.apply(this._dataClient, arguments);
 };
 
 AbstractDataClient.prototype.removeRange = function () {
-  arguments[0] = this._localizeDataKey(arguments[0]);
   this._dataClient.removeRange.apply(this._dataClient, arguments);
 };
 
-AbstractDataClient.prototype.removeAll = function (callback) {
-  var clientRootKey = this._localizeDataKey();
-  this._dataClient.set.call(this._dataClient, clientRootKey, {}, callback);
+AbstractDataClient.prototype.removeAll = function () {
+  this._dataClient.removeAll.apply(this._dataClient, arguments);
 };
 
 AbstractDataClient.prototype.splice = function () {
-  arguments[0] = this._localizeDataKey(arguments[0]);
   this._dataClient.splice.apply(this._dataClient, arguments);
 };
 
 AbstractDataClient.prototype.pop = function () {
-  arguments[0] = this._localizeDataKey(arguments[0]);
   this._dataClient.pop.apply(this._dataClient, arguments);
 };
 
 AbstractDataClient.prototype.hasKey = function () {
-  arguments[0] = this._localizeDataKey(arguments[0]);
   this._dataClient.hasKey.apply(this._dataClient, arguments);
 };
 
@@ -111,9 +87,7 @@ AbstractDataClient.prototype.extractValues = function (object) {
   run(queryFn,[ data, callback])
 */
 AbstractDataClient.prototype.run = function () {
-  var options = {
-    baseKey: this._localizeDataKey()
-  };
+  var options = {};
   
   var callback;
   
@@ -149,10 +123,6 @@ Global.prototype = Object.create(AbstractDataClient.prototype);
 
 Global.prototype.destroy = function () {
   this._ioClusterClient.removeListener('message', this._messageHander);
-};
-
-Global.prototype._localizeDataKey = function (key) {
-  return null;
 };
 
 Global.prototype._handleChannelMessage = function (message) {
