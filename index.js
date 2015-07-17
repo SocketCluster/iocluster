@@ -291,13 +291,13 @@ var IOCluster = module.exports.IOCluster = function (options) {
   this._dataServers = [];
   
   var readyCount = 0;
-  var len = options.stores.length;
+  var len = options.brokers.length;
   var firstTime = true;
   var startDebugPort = options.debug;
   
   for (var i = 0; i < len; i++) {
     var launchServer = function (i) {
-      var socketPath = options.stores[i];
+      var socketPath = options.brokers[i];
       
       dataServer = ndata.createServer({
         id: i,
@@ -307,16 +307,16 @@ var IOCluster = module.exports.IOCluster = function (options) {
         secretKey: options.secretKey,
         expiryAccuracy: options.expiryAccuracy,
         downgradeToUser: options.downgradeToUser,
-        storeControllerPath: options.appStoreControllerPath,
+        brokerControllerPath: options.appBrokerControllerPath,
         processTermTimeout: options.processTermTimeout,
-        storeOptions: options.storeOptions
+        brokerOptions: options.brokerOptions
       });
       
       self._dataServers[i] = dataServer;
       
       if (firstTime) {
         dataServer.on('ready', function () {
-          if (++readyCount >= options.stores.length) {
+          if (++readyCount >= options.brokers.length) {
             firstTime = false;
             self.emit('ready');
           }
@@ -363,8 +363,8 @@ var IOClusterClient = module.exports.IOClusterClient = function (options) {
   var dataClient;
   var dataClients = [];
   
-  for (var i in options.stores) {
-    var socketPath = options.stores[i];
+  for (var i in options.brokers) {
+    var socketPath = options.brokers[i];
     dataClient = ndata.createClient({
       socketPath: socketPath,
       secretKey: options.secretKey
