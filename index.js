@@ -331,6 +331,10 @@ var IOCluster = module.exports.IOCluster = function (options) {
         self.emit('error', new Error('nData server at socket path ' + socketPath + ' exited'));
         launchServer(i);
       });
+      
+      dataServer.on('brokerMessage', function (brokerId, data) {
+        self.emit('brokerMessage', brokerId, data);
+      });
     };
     
     launchServer(i);
@@ -338,6 +342,17 @@ var IOCluster = module.exports.IOCluster = function (options) {
 };
 
 IOCluster.prototype = Object.create(EventEmitter.prototype);
+
+IOCluster.prototype.sendToBroker = function (brokerId, data) {
+  var targetBroker = this._dataServers[brokerId];
+  if (targetBroker) {
+    targetBroker.sendMasterMessage(data);
+  } else {
+    var err = new Error('Broker with id ' + brokerId + ' does not exist');
+    err.pid = process.pid;
+    this.emit('error', err);
+  }
+};
 
 IOCluster.prototype.destroy = function () {
   for (var i in this._dataServers) {
