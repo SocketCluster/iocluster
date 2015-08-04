@@ -230,17 +230,19 @@ Global.prototype.subscriptions = function (includePending) {
   var subs = [];
   var channel, includeChannel;
   for (var channelName in this._channels) {
-    channel = this._channels[channelName];
-    
-    if (includePending) {
-      includeChannel = channel && (channel.state == channel.SUBSCRIBED || 
-        channel.state == channel.PENDING);
-    } else {
-      includeChannel = channel && channel.state == channel.SUBSCRIBED;
-    }
-    
-    if (includeChannel) {
-      subs.push(channelName);
+    if (this._channels.hasOwnProperty(channelName)) {
+      channel = this._channels[channelName];
+      
+      if (includePending) {
+        includeChannel = channel && (channel.state == channel.SUBSCRIBED || 
+          channel.state == channel.PENDING);
+      } else {
+        includeChannel = channel && channel.state == channel.SUBSCRIBED;
+      }
+      
+      if (includeChannel) {
+        subs.push(channelName);
+      }
     }
   }
   return subs;
@@ -356,7 +358,9 @@ IOCluster.prototype.sendToBroker = function (brokerId, data) {
 
 IOCluster.prototype.destroy = function () {
   for (var i in this._dataServers) {
-    this._dataServers[i].destroy();
+    if (this._dataServers.hasOwnProperty(i)) {
+      this._dataServers[i].destroy();
+    }
   }
 };
 
@@ -379,12 +383,14 @@ var IOClusterClient = module.exports.IOClusterClient = function (options) {
   var dataClients = [];
   
   for (var i in options.brokers) {
-    var socketPath = options.brokers[i];
-    dataClient = ndata.createClient({
-      socketPath: socketPath,
-      secretKey: options.secretKey
-    });
-    dataClients.push(dataClient);
+    if (options.brokers.hasOwnProperty(i)) {
+      var socketPath = options.brokers[i];
+      dataClient = ndata.createClient({
+        socketPath: socketPath,
+        secretKey: options.secretKey
+      });
+      dataClients.push(dataClient);
+    }
   }
   
   var hasher = function (key) {
@@ -466,7 +472,9 @@ var IOClusterClient = module.exports.IOClusterClient = function (options) {
   };
   
   for (var j in dataClients) {
-    dataClients[j].on('ready', dataClientReady);
+    if (dataClients.hasOwnProperty(j)) {
+      dataClients[j].on('ready', dataClientReady);
+    }
   }
   
   this._privateClientCluster.on('message', this._handleGlobalMessage.bind(this));
@@ -508,7 +516,9 @@ IOClusterClient.prototype._decorateSocket = function (socket) {
   socket.kickOut = function (channel, message, callback) {
     if (channel == null) {
       for (var i in socket.channelSubscriptions) {
-        socket.emit('#kickOut', {message: message, channel: i});
+        if (socket.channelSubscriptions.hasOwnProperty(i)) {
+          socket.emit('#kickOut', {message: message, channel: i});
+        }
       }
     } else {
       socket.emit('#kickOut', {message: message, channel: channel});
@@ -519,7 +529,9 @@ IOClusterClient.prototype._decorateSocket = function (socket) {
   socket.subscriptions = function () {
     var subs = [];
     for (var i in socket.channelSubscriptions) {
-      subs.push(i);
+      if (socket.channelSubscriptions.hasOwnProperty(i)) {
+        subs.push(i);
+      }
     }
     return subs;
   };
@@ -647,12 +659,14 @@ IOClusterClient.prototype.unsubscribeAll = function (callback) {
   
   var tasks = [];
   for (var channel in this._globalSubscriptions) {
-    delete this._globalSubscriptions[channel];
-    (function (channel) {
-      tasks.push(function (cb) {
-        self._dropUnusedSubscriptions(channel, cb);
-      });
-    })(channel);
+    if (this._globalSubscriptions.hasOwnProperty(channel)) {
+      delete this._globalSubscriptions[channel];
+      (function (channel) {
+        tasks.push(function (cb) {
+          self._dropUnusedSubscriptions(channel, cb);
+        });
+      })(channel);
+    }
   }
   async.parallel(tasks, callback);
 };
@@ -670,11 +684,13 @@ IOClusterClient.prototype.subscribeClientSocket = function (socket, channels, ca
   if (channels instanceof Array) {
     var tasks = [];
     for (var i in channels) {
-      (function (channel) {
-        tasks.push(function (cb) {
-          self._subscribeSingleClientSocket(socket, channel, cb);
-        });
-      })(channels[i]);
+      if (channels.hasOwnProperty(i)) {
+        (function (channel) {
+          tasks.push(function (cb) {
+            self._subscribeSingleClientSocket(socket, channel, cb);
+          });
+        })(channels[i]);
+      }
     }
     async.waterfall(tasks, function (err) {
       callback && callback(err);
@@ -690,12 +706,15 @@ IOClusterClient.prototype.unsubscribeClientSocket = function (socket, channels, 
   if (channels == null) {
     channels = [];
     for (var channel in socket.channelSubscriptions) {
-      channels.push(channel);
+      if (socket.channelSubscriptions.hasOwnProperty(channel)) {
+        channels.push(channel);
+      }
     }
   }
   if (channels instanceof Array) {
     var tasks = [];
-    for (var i in channels) {
+    var len = channels.length;
+    for (var i = 0; i < len; i++) {
       (function (channel) {
         tasks.push(function (cb) {
           self._unsubscribeSingleClientSocket(socket, channel, cb);
@@ -777,7 +796,9 @@ IOClusterClient.prototype._handleGlobalMessage = function (channel, message, opt
   var subscriberSockets = this._clientSubscribers[channel];
   
   for (var i in subscriberSockets) {
-    subscriberSockets[i].emit('#publish', packet);
+    if (subscriberSockets.hasOwnProperty(i)) {
+      subscriberSockets[i].emit('#publish', packet);
+    }
   }
   
   this.emit('message', packet);

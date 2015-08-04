@@ -2,8 +2,10 @@ var KeyManager = function () {};
 
 KeyManager.prototype.isMemberKey = function (parentKey, memberKey) {
   for (var i in parentKey) {
-    if (parentKey[i] != memberKey[i]) {
-      return false;
+    if (parentKey.hasOwnProperty(i)) {
+      if (parentKey[i] != memberKey[i]) {
+        return false;
+      }
     }
   }
   return true;

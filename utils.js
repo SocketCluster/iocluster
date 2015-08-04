@@ -1,7 +1,9 @@
 module.exports.isEmpty = function (obj) {
   var i;
   for (i in obj) {
-    return false;
+    if (obj.hasOwnProperty(i)) {
+      return false;
+    }
   }
   return true;
 };
