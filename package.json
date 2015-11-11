@@ -23,7 +23,7 @@
   },
   "dependencies": {
     "async": "0.1.22",
-    "ndata": "2.9.x",
+    "ndata": "2.10.x",
     "sc-channel": "1.0.x"
   },
   "main": "index",

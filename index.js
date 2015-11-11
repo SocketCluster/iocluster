@@ -165,6 +165,25 @@ Exchange.prototype._triggerChannelUnsubscribe = function (channel, newState) {
   }
 };
 
+Exchange.prototype.send = function (data, mapIndex, callback) {
+  if (mapIndex == null) {
+    // Send to all brokers in cluster if mapIndex is not provided
+    mapIndex = '*';
+  }
+  var targetClients = this._privateClientCluster.map({mapIndex: mapIndex}, 'send');
+  var len = targetClients.length;
+  var tasks = [];
+
+  for (var i = 0; i < len; i++) {
+    (function (client) {
+      tasks.push(function (cb) {
+        client.send(data, cb);
+      });
+    })(targetClients[i]);
+  }
+  async.parallel(tasks, callback);
+};
+
 Exchange.prototype.publish = function (channelName, data, callback) {
   this._ioClusterClient.publish(channelName, data, callback);
 };
@@ -400,6 +419,16 @@ var IOClusterClient = module.exports.IOClusterClient = function (options) {
     if (typeof key == 'number') {
       hash = key;
     } else {
+      if (key instanceof Array) {
+        key = key[0];
+      }
+      if (typeof key != 'string') {
+        try {
+          key = JSON.stringify(key);
+        } catch (e) {
+          key = null;
+        }
+      }
       if (key == null || key.length == 0) {
         return hash;
       }
@@ -419,39 +448,48 @@ var IOClusterClient = module.exports.IOClusterClient = function (options) {
     isSubscribed: true
   };
 
-  this._privateMapper = function (key, method, clientIds) {
+  this._defaultMapper = function (key, method, clientIds) {
     if (channelMethods[method]) {
       if (key == null) {
         return clientIds;
       }
       return hasher(key);
-    }
-
-    if (method == 'query' || method == 'run') {
-      if (key.mapIndex) {
-        return hasher(key.mapIndex);
+    } else if (method == 'query' || method == 'run' || method == 'send') {
+      var mapIndex = key.mapIndex;
+      if (mapIndex) {
+        // A mapIndex of * means that the action should be sent to all
+        // brokers in the cluster.
+        if (mapIndex == '*') {
+          return clientIds;
+        } else {
+          if (mapIndex instanceof Array) {
+            var hashedIndexes = [];
+            var len = mapIndex.length;
+            for (var i = 0; i < len; i++) {
+              hashedIndexes.push(hasher(mapIndex[i]));
+            }
+            return hashedIndexes;
+          } else {
+            return hasher(mapIndex);
+          }
+        }
       }
       return 0;
-    }
-    if (key instanceof Array) {
-      if (key[2] == null) {
-        return clientIds;
-      }
-      return hasher(key[2]);
+    } else if (method == 'removeAll') {
+      return clientIds;
     }
     return hasher(key);
   };
 
-  this._publicMapper = function (key, method, clientIds) {
-    return 0;
-  };
-
+  // The user cannot change the _defaultMapper for _privateClientCluster.
   this._privateClientCluster = new ClientCluster(dataClients);
-  this._privateClientCluster.setMapper(this._privateMapper);
+  this._privateClientCluster.setMapper(this._defaultMapper);
   this._errorDomain.add(this._privateClientCluster);
 
+  // The user can provide a custom mapper for _publicClientCluster.
+  // The _defaultMapper is used by default.
   this._publicClientCluster = new ClientCluster(dataClients);
-  this._publicClientCluster.setMapper(this._publicMapper);
+  this._publicClientCluster.setMapper(this._defaultMapper);
   this._errorDomain.add(this._publicClientCluster);
 
   this._sockets = {};

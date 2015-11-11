@@ -4,22 +4,22 @@ var EventEmitter = require('events').EventEmitter;
 
 var ClientCluster = function (clients) {
   var self = this;
-  
+
   var handleMessage = function () {
     var args = Array.prototype.slice.call(arguments);
     self.emit.apply(self, ['message'].concat(args));
   };
-  
+
   for (var c in clients) {
     if (clients.hasOwnProperty(c)) {
       clients[c].on('message', handleMessage);
     }
   }
-  
+
   var i, method;
   var client = clients[0];
   var clientIds = [];
-  
+
   var clientInterface = [
     'subscribe',
     'isSubscribed',
@@ -42,19 +42,20 @@ var ClientCluster = function (clients) {
     'splice',
     'pop',
     'hasKey',
+    'send',
     'end'
   ];
-  
+
   var clientUtils = [
     'extractKeys',
     'extractValues'
   ];
-  
+
   var errorDomain = domain.createDomain();
   errorDomain.on('error', function (err) {
     self.emit('error', err);
   });
-  
+
   for (var i in clients) {
     if (clients.hasOwnProperty(i)) {
       errorDomain.add(clients[i]);
@@ -62,12 +63,12 @@ var ClientCluster = function (clients) {
       clientIds.push(i);
     }
   }
-  
+
   // Default mapper maps to all clients.
   var mapper = function () {
     return clientIds;
   };
-  
+
   for (var j in clientInterface) {
     if (clientInterface.hasOwnProperty(j)) {
       (function (method) {
@@ -76,7 +77,7 @@ var ClientCluster = function (clients) {
           var lastArg = arguments[arguments.length - 1];
           var results = [];
           var activeClients = self.map(key, method);
-          
+
           if (lastArg instanceof Function) {
             if (activeClients.length < 2) {
               activeClients[0][method].apply(activeClients[0], arguments);
@@ -86,7 +87,7 @@ var ClientCluster = function (clients) {
               var args = Array.prototype.slice.call(arguments, 0, -1);
               var cb = lastArg;
               var len = activeClients.length;
-              
+
               for (var i = 0; i < len; i++) {
                 (function (activeClient) {
                   tasks.push(function () {
@@ -100,7 +101,7 @@ var ClientCluster = function (clients) {
             }
           } else {
             var len = activeClients.length;
-            
+
             for (var i = 0; i < len; i++) {
               result = activeClients[i][method].apply(activeClients[i], arguments);
               results.push(result);
@@ -111,12 +112,12 @@ var ClientCluster = function (clients) {
       })(clientInterface[j]);
     }
   }
-  
+
   var multiKeyClientInterface = [
     'expire',
     'unexpire'
   ];
-  
+
   for (var m in multiKeyClientInterface) {
     if (multiKeyClientInterface.hasOwnProperty(m)) {
       (function (method) {
@@ -126,11 +127,11 @@ var ClientCluster = function (clients) {
           var tasks = [];
           var results = [];
           var expiryMap = {};
-          
+
           var lastArg = arguments[arguments.length - 1];
           var cb = lastArg;
           var len = keys.length;
-          
+
           for (var j = 0; j < len; j++) {
             key = keys[j];
             activeClients = self.map(key, method);
@@ -143,14 +144,14 @@ var ClientCluster = function (clients) {
               expiryMap[mapping].push(key);
             }
           }
-          
+
           var partArgs = Array.prototype.slice.call(arguments, 1, -1);
-          
+
           for (mapping in expiryMap) {
             if (expiryMap.hasOwnProperty(mapping)) {
               (function (activeClient, expiryKeys) {
                 var newArgs = [expiryKeys].concat(partArgs);
-                tasks.push(function () {  
+                tasks.push(function () {
                   var callback = arguments[arguments.length - 1];
                   var result = activeClient[method].apply(activeClient, newArgs.concat(callback));
                   results.push(result);
@@ -159,28 +160,28 @@ var ClientCluster = function (clients) {
             }
           }
           async.parallel(tasks, cb);
-          
+
           return results;
         };
       })(multiKeyClientInterface[m]);
     }
   }
-  
+
   for (var n in clientUtils) {
     if (clientUtils.hasOwnProperty(n)) {
       method = clientUtils[n];
       this[method] = client[method].bind(client);
     }
   }
-  
+
   this.setMapper = function (mapperFunction) {
     mapper = mapperFunction;
   };
-  
+
   this.getMapper = function (mapperFunction) {
     return mapper;
   };
-  
+
   this.map = function (key, method) {
     var result = mapper(key, method, clientIds);
     if (typeof result == 'number') {
@@ -194,7 +195,7 @@ var ClientCluster = function (clients) {
       }
       return dataClients;
     }
-    
+
     return [];
   };
 };
