@@ -597,7 +597,7 @@ IOClusterClient.prototype.bind = function (socket, callback) {
         self.subscribeClientSocket(socket, channel, function (err) {
           if (err) {
             res(err);
-            self.emit('notice', err);
+            self.emit('warning', err);
           } else {
             res();
           }
@@ -605,12 +605,12 @@ IOClusterClient.prototype.bind = function (socket, callback) {
       });
 
       socket.on('#unsubscribe', function (channel, res) {
-        self.unsubscribeClientSocket(socket, channel, function (err, isNotice) {
+        self.unsubscribeClientSocket(socket, channel, function (err, isWarning) {
           if (err) {
             res(err);
 
-            if (isNotice) {
-              self.emit('notice', err);
+            if (isWarning) {
+              self.emit('warning', err);
             } else {
               self.emit('error', err);
             }
