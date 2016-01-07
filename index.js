@@ -593,8 +593,11 @@ IOClusterClient.prototype.bind = function (socket, callback) {
     } else {
       self._sockets[socket.id] = socket;
 
-      socket.on('#subscribe', function (channel, res) {
-        self.subscribeClientSocket(socket, channel, function (err) {
+      socket.on('#subscribe', function (channelOptions, res) {
+        if (!channelOptions) {
+          channelOptions = {};
+        }
+        self.subscribeClientSocket(socket, channelOptions.channel, function (err) {
           if (err) {
             res(err);
             self.emit('warning', err);
